@@ -93,3 +93,13 @@ export type ServerNotification =
     | ToolResultNotification
     | DoneNotification
 
+export interface LopConfig {
+    provider?: "openai" | "anthropic" | "openrouter" | "minimax"
+    model?: string
+    apiKey?: string
+    baseURL?: string
+    debug?: boolean  // 是否打印调试日志
+    // 兼容配置文件的命名
+    token?: string
+    url?: string
+}

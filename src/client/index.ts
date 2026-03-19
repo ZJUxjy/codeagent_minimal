@@ -2,11 +2,15 @@
 import { spawn, type ChildProcess } from "child_process"
 import * as readline from "readline"
 import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
+import { debugLog } from "../config.js"
 
 export interface ClientOptions {
   cwd?: string
   provider?: string
   model?: string
+  apiKey?: string
+  baseURL?: string
+  debug?: boolean
 }
 
 export type ClientEvent =
@@ -20,11 +24,26 @@ export class Client {
   private requestId = 0
   private pendingRequests = new Map<number, { resolve: Function; reject: Function }>()
   private eventHandler?: (event: ClientEvent) => void
+  private debug: boolean
 
   constructor(options: ClientOptions = {}) {
+    this.debug = options.debug ?? false
     const env: Record<string, string> = {}
     if (options.provider) env.LOP_PROVIDER = options.provider
     if (options.model) env.LOP_MODEL = options.model
+    if (options.apiKey) env.LOP_API_KEY = options.apiKey
+    if (options.baseURL) env.LOP_BASE_URL = options.baseURL
+    if (this.debug) env.LOP_DEBUG = "true"
+
+    // 调试日志
+    if (this.debug) {
+      if (options.apiKey) {
+        console.error(`[Debug] Passing API Key: ${options.apiKey.slice(0, 10)}...`)
+      }
+      if (options.baseURL) {
+        console.error(`[Debug] Passing Base URL: ${options.baseURL}`)
+      }
+    }
 
     this.server = spawn("node", ["dist/server/index.js"], {
       stdio: ["pipe", "pipe", "inherit"],

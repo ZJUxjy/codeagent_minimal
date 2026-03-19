@@ -1,34 +1,40 @@
 #!/usr/bin/env node
 // src/index.ts - CLI 入口
 import * as readline from "readline"
-import { Client, type ClientEvent } from "./client/index.js"
+import { Client, type ClientEvent, type ClientOptions } from "./client/index.js"
+import { loadConfig } from "./config.js"
 
-interface CLIOptions {
-    provider?: string
-    model?: string
-    cwd?: string
-}
+async function main() {
+    // 加载配置文件
+    const fileConfig = loadConfig()
 
-function parseArgs(): CLIOptions {
+    // 解析命令行参数
     const args = process.argv.slice(2)
-    const options: CLIOptions = {}
+    const cliOptions: Partial<ClientOptions> = {}
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i]
         if (arg === "-p" || arg === "--provider") {
-            options.provider = args[++i]
+            cliOptions.provider = args[++i]
         } else if (arg === "-m" || arg === "--model") {
-            options.model = args[++i]
+            cliOptions.model = args[++i]
         } else if (arg === "-d" || arg === "--directory") {
-            options.cwd = args[++i]
+            cliOptions.cwd = args[++i]
+        } else if (arg === "--debug") {
+            cliOptions.debug = true
         }
     }
 
-    return options
-}
+    // 合并配置（优先级：命令行 > 配置文件）
+    const options: ClientOptions = {
+        provider: cliOptions.provider ?? fileConfig.provider,
+        model: cliOptions.model ?? fileConfig.model,
+        apiKey: fileConfig.apiKey,
+        baseURL: fileConfig.baseURL,
+        cwd: cliOptions.cwd,
+        debug: cliOptions.debug ?? fileConfig.debug,
+    }
 
-async function main() {
-    const options = parseArgs()
     const cwd = options.cwd ?? process.cwd()
 
     console.log("lop_minimal v0.1.0")
@@ -95,11 +101,11 @@ async function main() {
 
             if (trimmed === "/help") {
                 console.log(`
-  Commands:
-    /clear  - Clear conversation history
-    /help   - Show this help
-    Ctrl+C  - Exit
-          `)
+Commands:
+  /clear  - Clear conversation history
+  /help   - Show this help
+  Ctrl+C  - Exit
+                `)
                 prompt()
                 return
             }

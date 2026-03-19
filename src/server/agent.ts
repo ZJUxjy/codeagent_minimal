@@ -8,9 +8,12 @@ import type { ToolContext } from "./tools/types.js"
 
 /** Agent 配置 */
 export interface AgentConfig {
-  provider: "openai" | "anthropic" | "openrouter"
+  provider: "openai" | "anthropic" | "openrouter" | "minimax"
   model: string
   cwd: string
+  apiKey?: string
+  baseURL?: string
+  debug?: boolean
   store?: MessageStore
   hooks?: AgentHooks
 }
@@ -34,6 +37,9 @@ export class Agent {
     this.llm = new LLMClient({
       provider: config.provider,
       model: config.model,
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+      debug: config.debug,
     })
     this.tools = new ToolRegistry()
     this.store = config.store ?? new InMemoryStore()

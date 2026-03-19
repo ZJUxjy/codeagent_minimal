@@ -6,6 +6,14 @@ import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 // 全局状态
 let agent: Agent | null = null
 let currentCwd = process.cwd()
+let debugEnabled = process.env.LOP_DEBUG === "true"
+
+/** 调试日志 */
+function debugLog(...args: unknown[]): void {
+    if (debugEnabled) {
+        console.error("[Server]", ...args)
+    }
+}
 
 /** 发送 JSON-RPC 通知 */
 function sendNotification(method: string, params: unknown): void {
@@ -29,12 +37,21 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
 
     switch (method) {
         case "initialize": {
-            // 创建 Agent 实例
+            // 创建 Agent 实例，从环境变量读取配置
             const config: AgentConfig = {
                 provider: (process.env.LOP_PROVIDER as AgentConfig["provider"]) ?? "openai",
                 model: process.env.LOP_MODEL ?? "gpt-4o",
+                apiKey: process.env.LOP_API_KEY,
+                baseURL: process.env.LOP_BASE_URL,
                 cwd: currentCwd,
+                debug: debugEnabled,
             }
+
+            // 调试日志
+            debugLog(`Config: provider=${config.provider}, model=${config.model}`)
+            debugLog(`API Key: ${config.apiKey?.slice(0, 10)}...`)
+            debugLog(`Base URL: ${config.baseURL}`)
+
             agent = new Agent(config)
 
             sendResponse(requestId, {
