@@ -1,0 +1,132 @@
+// src/client/index.ts
+import { spawn, type ChildProcess } from "child_process"
+import * as readline from "readline"
+import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
+
+export interface ClientOptions {
+  cwd?: string
+  provider?: string
+  model?: string
+}
+
+export type ClientEvent =
+  | { type: "content"; delta: string }
+  | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
+  | { type: "tool_result"; id: string; content: string; isError?: boolean }
+  | { type: "done"; finishReason: string }
+
+export class Client {
+  private server: ChildProcess
+  private requestId = 0
+  private pendingRequests = new Map<number, { resolve: Function; reject: Function }>()
+  private eventHandler?: (event: ClientEvent) => void
+
+  constructor(options: ClientOptions = {}) {
+    const env: Record<string, string> = {}
+    if (options.provider) env.LOP_PROVIDER = options.provider
+    if (options.model) env.LOP_MODEL = options.model
+
+    this.server = spawn("node", ["dist/server/index.js"], {
+      stdio: ["pipe", "pipe", "inherit"],
+      cwd: options.cwd ?? process.cwd(),
+      env: { ...process.env, ...env },
+    })
+
+    // 处理 server 输出
+    const rl = readline.createInterface({
+      input: this.server.stdout!,
+      terminal: false,
+    })
+
+    rl.on("line", (line) => {
+      try {
+        this.handleMessage(JSON.parse(line))
+      } catch (error) {
+        console.error("Failed to parse server message:", error)
+      }
+    })
+
+    this.server.on("error", (error) => {
+      console.error("Server error:", error)
+    })
+  }
+
+  private handleMessage(message: any): void {
+    if (message.method) {
+      // 通知
+      this.handleNotification(message as JsonRpcNotification)
+    } else if (message.id !== undefined) {
+      // 响应
+      const pending = this.pendingRequests.get(message.id)
+      if (pending) {
+        this.pendingRequests.delete(message.id)
+        if (message.error) {
+          pending.reject(new Error(message.error.message))
+        } else {
+          pending.resolve(message.result)
+        }
+      }
+    }
+  }
+
+  private handleNotification(notification: JsonRpcNotification): void {
+    if (!this.eventHandler) return
+
+    const { method, params } = notification
+    const p = params as Record<string, any>
+
+    switch (method) {
+      case "content":
+        this.eventHandler({ type: "content", delta: p.delta })
+        break
+      case "tool_call":
+        this.eventHandler({ type: "tool_call", id: p.id, name: p.name, args: p.args })
+        break
+      case "tool_result":
+        this.eventHandler({ type: "tool_result", id: p.id, content: p.content, isError: p.isError })
+        break
+      case "done":
+        this.eventHandler({ type: "done", finishReason: p.finishReason })
+        break
+      default:
+        console.warn(`Unknown notification method: ${method}`)
+    }
+  }
+
+  private sendRequest<T>(method: string, params?: unknown): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const id = ++this.requestId
+      const request: JsonRpcRequest = { jsonrpc: "2.0", id, method, params }
+
+      this.pendingRequests.set(id, { resolve, reject })
+      this.server.stdin!.write(JSON.stringify(request) + "\n")
+    })
+  }
+
+  /** 初始化连接 */
+  async initialize(): Promise<void> {
+    await this.sendRequest("initialize", {
+      clientInfo: { name: "lop_minimal_cli", version: "0.1.0" },
+    })
+  }
+
+  /** 设置事件处理器 */
+  onEvent(handler: (event: ClientEvent) => void): void {
+    this.eventHandler = handler
+  }
+
+  /** 发送聊天消息 */
+  async chat(message: string, cwd?: string): Promise<void> {
+    await this.sendRequest("chat", { message, cwd })
+  }
+
+  /** 清空对话历史 */
+  async clear(): Promise<void> {
+    await this.sendRequest("clear")
+  }
+
+  /** 关闭客户端 */
+  close(): void {
+    this.server.kill()
+  }
+}
