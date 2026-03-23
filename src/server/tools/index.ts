@@ -3,6 +3,9 @@ import { readTool } from "./read.js"
 import { writeTool } from "./write.js"
 import { editTool } from "./edit.js"
 import { bashTool } from "./bash.js"
+import { globTool } from "./glob.js"
+import { grepTool } from "./grep.js"
+import { listDirectoryTool } from "./listDirectory.js"
 
 export class ToolRegistry {
     private tools = new Map<string, Tool>()
@@ -12,6 +15,9 @@ export class ToolRegistry {
         this.register(writeTool)
         this.register(editTool)
         this.register(bashTool)
+        this.register(globTool)
+        this.register(grepTool)
+        this.register(listDirectoryTool)
     }
     register(tool: Tool): void {
         this.tools.set(tool.name, tool)
