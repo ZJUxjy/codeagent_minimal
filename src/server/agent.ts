@@ -21,6 +21,8 @@ export interface AgentConfig {
 /** Agent 输出事件 */
 export type AgentEvent =
   | { type: "content"; delta: string }
+  | { type: "reasoning"; delta: string }
+  | { type: "reasoning_end" }
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; id: string; content: string; isError?: boolean }
   | { type: "done"; finishReason: string }
@@ -72,6 +74,14 @@ export class Agent {
         // 文本增量
         assistantContent += event.delta
         yield { type: "content", delta: event.delta }
+
+      } else if (event.type === "reasoning") {
+        // 思考内容增量 - 直接转发
+        yield { type: "reasoning", delta: event.delta }
+
+      } else if (event.type === "reasoning_end") {
+        // 思考块结束
+        yield { type: "reasoning_end" }
 
       } else if (event.type === "tool_call") {
         // 工具调用
