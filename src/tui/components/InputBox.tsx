@@ -1,10 +1,12 @@
-import React, { useState, useMemo, useEffect } from 'react'
-import { Box, Text, useInput, useStdout } from 'ink'
-import TextInput from 'ink-text-input'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import { Box, Text, useInput } from 'ink'
 import { CommandCompletion } from './CommandCompletion.js'
+import { MultilineTextInput } from './MultilineTextInput.js'
+import { useInputBuffer } from '../hooks/useInputBuffer.js'
+import { useInputHistory } from '../hooks/useInputHistory.js'
+import { usePasteHandler } from '../contexts/KeypressContext.js'
 import type { SlashCommand } from '../../commands/types.js'
 import { useTheme } from '../themes/ThemeContext.js'
-import { truncate } from '../../utils/truncate.js'
 
 interface InputBoxProps {
     onSubmit: (value: string) => void
@@ -15,66 +17,56 @@ interface InputBoxProps {
 
 export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBoxProps) => {
     const { colors } = useTheme()
-    const [value, setValue] = useState('')
-    const [history, setHistory] = useState<string[]>([])
-    const [historyIndex, setHistoryIndex] = useState(-1)
-    const [inputKey, setInputKey] = useState(0) // 用于强制重新挂载 TextInput
-    const [selectedIndex, setSelectedIndex] = useState(0)
-    const { stdout } = useStdout()
-    const terminalWidth = stdout.columns
-
-    // 焦点管理：0 = 主输入框, 1 = 测试输入框
+    const buffer = useInputBuffer()
+    const history = useInputHistory(buffer)
     const [focusIndex, setFocusIndex] = useState(0)
+    const [selectedIndex, setSelectedIndex] = useState(0)
 
-    const [testValue, setTestValue] = useState('')
+    const isMainFocused = focusIndex === 0 && !disabled
+    const text = buffer.text
+    const [pendingBackslash, setPendingBackslash] = useState(false)
 
-    const truncateForBlur = (text: string, isFocused: boolean, maxLen: number = 15) => {
-        return isFocused ? text : truncate(text, maxLen - 3)
-    }
     const matchedCommands = useMemo(() => {
-        if (!value.startsWith('/')) return []
-        const partial = value.slice(1).toLowerCase()
+        if (!text.startsWith('/')) return []
+        const partial = text.slice(1).toLowerCase()
+        if (text.includes('\n')) return []
         if (!partial) return commands
-
-        return commands.filter(cmd =>
-            cmd.name.startsWith(partial)
-            // ||cmd.altNames?.some(alt => alt.startsWith(partial))
-        )
-    }, [value, commands])
+        return commands.filter(cmd => cmd.name.startsWith(partial))
+    }, [text, commands])
 
     useEffect(() => {
         setSelectedIndex(0)
-    }, [value, matchedCommands.length])
+    }, [text, matchedCommands.length])
 
-    const selectedCommand = useMemo(() => {
-        if (matchedCommands.length === 0) return null
-        return matchedCommands[selectedIndex] ?? null
-    }, [matchedCommands, selectedIndex])
-
+    const selectedCommand = matchedCommands[selectedIndex] ?? null
     const showCompletion = useMemo(() => {
-        return value.startsWith('/') &&
-            !value.includes(' ') &&
+        return text.startsWith('/') &&
+            !text.includes(' ') &&
+            !text.includes('\n') &&
             matchedCommands.length > 0
-    }, [value, matchedCommands.length])
+    }, [text, matchedCommands.length])
 
-    useInput((_input, key) => {
+    usePasteHandler(
+        useCallback((key) => {
+            buffer.snapshot()
+            buffer.insert(key.sequence)
+        }, [buffer]),
+        { isActive: isMainFocused },
+    )
+
+    useInput((input, key) => {
         if (disabled) return
-        if(key.ctrl && key.backspace) {
-            console.log('ctrl+backspace')
-            setValue('')
-            setInputKey(k => k + 1)
-            return
-        }
+
         if (key.tab) {
-            if (focusIndex === 0 && selectedCommand) {
-                const newValue = `/${selectedCommand.name} `
-                setValue(newValue)
-                setInputKey(k => k + 1)
+            if (focusIndex === 0 && showCompletion && selectedCommand) {
+                buffer.setText(`/${selectedCommand.name} `)
                 return
             }
             setFocusIndex(i => (i + 1) % 2)
             return
         }
+
+        if (focusIndex !== 0) return
 
         if (showCompletion && matchedCommands.length > 0) {
             if (key.upArrow) {
@@ -86,86 +78,174 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
                 return
             }
             if (key.escape) {
-                setValue(value + ' ')
-                setInputKey(k => k + 1)
+                buffer.insert(' ')
+                return
+            }
+        }
+
+        if (key.return) {
+            // newline: Shift+Enter, Ctrl+Enter, or \ then Enter
+            if (key.shift || key.ctrl || pendingBackslash) {
+                if (pendingBackslash) {
+                    buffer.backspace()
+                    setPendingBackslash(false)
+                }
+                buffer.snapshot()
+                buffer.newline()
+                return
+            }
+            // submit
+            if (!text.trim()) return
+            if (showCompletion && selectedCommand) {
+                buffer.setText(`/${selectedCommand.name} `)
+                return
+            }
+            setPendingBackslash(false)
+            buffer.snapshot()
+            history.push(text)
+            onSubmit(text)
+            buffer.clear()
+            return
+        }
+
+        if (key.ctrl) {
+            switch (input) {
+                case 'a':
+                    buffer.move('home')
+                    return
+                case 'e':
+                    buffer.move('end')
+                    return
+                case 'k':
+                    buffer.snapshot()
+                    buffer.killLineRight()
+                    return
+                case 'u':
+                    buffer.snapshot()
+                    buffer.killLineLeft()
+                    return
+                case 'w':
+                    buffer.snapshot()
+                    buffer.deleteWordLeft()
+                    return
+                case 'z':
+                    buffer.undo()
+                    return
+                case 'y':
+                    buffer.redo()
+                    return
+                case 'l':
+                    onClear()
+                    return
+            }
+        }
+
+        if (key.meta) {
+            if (key.leftArrow) {
+                buffer.moveWord('left')
+                return
+            }
+            if (key.rightArrow) {
+                buffer.moveWord('right')
+                return
+            }
+            if (input === 'b') {
+                buffer.moveWord('left')
+                return
+            }
+            if (input === 'f') {
+                buffer.moveWord('right')
                 return
             }
         }
 
         if (!showCompletion) {
             if (key.upArrow) {
-                if (historyIndex < history.length - 1) {
-                    const newIndex = historyIndex + 1
-                    setHistoryIndex(newIndex)
-                    setValue(history[history.length - 1 - newIndex] ?? '')
+                if (buffer.lines.length > 1 && buffer.cursor.row > 0) {
+                    buffer.move('up')
+                } else {
+                    history.navigateUp()
                 }
-            } else if (key.downArrow) {
-                if (historyIndex > 0) {
-                    const newIndex = historyIndex - 1
-                    setHistoryIndex(newIndex)
-                    setValue(history[history.length - 1 - newIndex] ?? '')
-                } else if (historyIndex === 0) {
-                    setHistoryIndex(-1)
-                    setValue('')
+                return
+            }
+            if (key.downArrow) {
+                const lastRow = buffer.lines.length - 1
+                if (buffer.lines.length > 1 && buffer.cursor.row < lastRow) {
+                    buffer.move('down')
+                } else {
+                    history.navigateDown()
                 }
+                return
             }
         }
-    })
 
-    const handleSubmit = (submitValue: string) => {
-        if (!submitValue.trim()) return
-
-        if (showCompletion && selectedCommand) {
-            const newValue = `/${selectedCommand.name} `
-            setValue(newValue)
-            setInputKey(k => k + 1)
+        if (key.leftArrow) {
+            buffer.move('left')
+            return
+        }
+        if (key.rightArrow) {
+            buffer.move('right')
+            return
+        }
+        if (key.backspace) {
+            buffer.backspace()
+            return
+        }
+        if (key.delete) {
+            buffer.delete()
             return
         }
 
-        setHistory(prev => [...prev, submitValue])
-        setHistoryIndex(-1)
-
-        onSubmit(submitValue)
-        setValue('')
-    }
+        if (input && !key.ctrl && !key.meta) {
+            setPendingBackslash(input === '\\')
+            buffer.insert(input)
+        }
+    })
 
     return (
         <Box flexDirection="column" marginTop={0}>
             <Box flexDirection="row" gap={0}>
-                <Box borderStyle="round" borderColor={focusIndex === 0 ? colors.border.focused : colors.border.default} flexGrow={focusIndex === 0 ? 8 : 2} flexBasis={0} 
-                height={focusIndex===0?'auto':3} width={'auto'}>
-                    <Text bold color={disabled ? colors.text.secondary : (focusIndex === 0 ? colors.border.focused : colors.text.secondary)}>
-                        {disabled ? '...' : '>'}
+
+                <Box
+                    borderStyle="round"
+                    borderColor={focusIndex === 0 ? colors.border.focused : colors.border.default}
+                    flexGrow={focusIndex === 0 ? 8 : 2}
+                    flexBasis={0}
+                    paddingLeft={0}
+                >
+                    <Text
+                        bold
+                        color={disabled
+                            ? colors.text.secondary
+                            : focusIndex === 0
+                                ? colors.border.focused
+                                : colors.text.secondary
+                        }
+                    >
+                        {disabled ? '...' : '> '}
                     </Text>
-                    <TextInput
-                        key={inputKey}
-                        value={truncateForBlur(value,focusIndex===0,Math.max( Math.floor(terminalWidth * 0.2)-8,0))}
-                        onChange={setValue}
-                        onSubmit={handleSubmit}
-                        placeholder={disabled ? 'Waiting...' : 'Message or /help...'}
-                        showCursor={!disabled && focusIndex === 0}
-                        focus={focusIndex === 0 && !disabled}
-                    />
+                    <Box flexGrow={1}>
+                        <MultilineTextInput
+                            buffer={buffer}
+                            placeholder={disabled ? 'Waiting...' : 'Message or /help...'}
+                            showCursor={isMainFocused}
+                            focus={isMainFocused}
+                        />
+                    </Box>
                 </Box>
 
-                <Box borderStyle="round" borderColor={focusIndex === 1 ? colors.status.success : colors.border.default} flexGrow={focusIndex === 1 ? 8 : 2} flexBasis={0}
-                height={focusIndex===1?'auto':3} width={'auto'}
+                <Box
+                    borderStyle="round"
+                    borderColor={focusIndex === 1 ? colors.status.success : colors.border.default}
+                    flexGrow={focusIndex === 1 ? 8 : 2}
+                    flexBasis={0}
                 >
                     <Text bold color={focusIndex === 1 ? colors.status.success : colors.text.secondary}>
-                        {'[TEST] '}
+                        {'[+] '}
                     </Text>
-                    <TextInput
-                        value={truncateForBlur(testValue,focusIndex===1,Math.max( Math.floor(terminalWidth * 0.2)-8,0))}
-                        onChange={setTestValue}
-                        onSubmit={(v) => {
-                            if (v.trim()) {
-                                setTestValue('')
-                            }
-                        }}
-                        placeholder="Test input..."
-                        showCursor={focusIndex === 1}
-                        focus={focusIndex === 1}
-                    />
+                    <Text dimColor color={colors.text.secondary}>
+                        {focusIndex === 1 ? 'coming soon' : ''}
+                    </Text>
                 </Box>
             </Box>
 
@@ -173,7 +253,7 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
                 <CommandCompletion
                     commands={matchedCommands}
                     selectedIndex={selectedIndex}
-                    inputPrefix={value}
+                    inputPrefix={text}
                 />
             )}
         </Box>
