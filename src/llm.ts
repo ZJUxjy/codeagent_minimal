@@ -1,11 +1,12 @@
 import { streamText } from "ai"
 import { openai, createOpenAI } from "@ai-sdk/openai"
 import { anthropic } from "@ai-sdk/anthropic"
+import { google } from "@ai-sdk/google"
 import type { CoreMessage, Tool } from "ai"
 
 // ============ 类型定义 ============
 
-export type Provider = "openai" | "anthropic" | "openrouter" | "minimax"
+export type Provider = "openai" | "anthropic" | "openrouter" | "minimax" | "google"
 
 export interface LLMConfig {
     provider: Provider
@@ -67,6 +68,9 @@ export class LLMClient {
                 })
                 return minimax(this.config.model)
 
+            case "google":
+                return google(this.config.model)
+
             default:
                 throw new Error(`Unknown provider: ${this.config.provider}`)
         }
@@ -107,6 +111,17 @@ export class LLMClient {
                     },
                     headers: {
                         "anthropic-beta": "interleaved-thinking-2025-05-14",
+                    },
+                }),
+                // 启用 Gemini thinking
+                ...(this.config.provider === "google" && {
+                    providerOptions: {
+                        google: {
+                            thinkingConfig: {
+                                thinkingBudget: 8192,
+                                includeThoughts: true,
+                            },
+                        },
                     },
                 }),
             })
