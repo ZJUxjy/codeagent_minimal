@@ -8,6 +8,29 @@ let currentCwd = process.cwd()
 let debugEnabled = process.env.LOP_DEBUG === "true"
 let currentAbortController: AbortController | null = null
 
+/** 从环境变量解析 MCP 配置 */
+function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
+    const config: AgentConfig["mcpConfig"] = {}
+
+    if (process.env.LOP_MCP_SERVERS) {
+        try {
+            config.mcpServers = JSON.parse(process.env.LOP_MCP_SERVERS)
+        } catch {
+            console.error("Failed to parse LOP_MCP_SERVERS")
+        }
+    }
+
+    if (process.env.LOP_MCP) {
+        try {
+            config.mcp = JSON.parse(process.env.LOP_MCP)
+        } catch {
+            console.error("Failed to parse LOP_MCP")
+        }
+    }
+
+    return config
+}
+
 /** 调试日志 */
 function debugLog(...args: unknown[]): void {
     if (debugEnabled) {
@@ -44,6 +67,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 baseURL: process.env.LOP_BASE_URL,
                 cwd: currentCwd,
                 debug: debugEnabled,
+                mcpConfig: getMcpConfigFromEnv(),
             }
 
             debugLog(`Config: provider=${config.provider}, model=${config.model}`)
@@ -51,6 +75,13 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             debugLog(`Base URL: ${config.baseURL}`)
 
             agent = new Agent(config)
+
+            // Trigger MCP discovery asynchronously (don't block initialization)
+            if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
+                agent.discoverMcpTools().catch((err) => {
+                    debugLog("MCP discovery failed:", err)
+                })
+            }
 
             sendResponse(requestId, {
                 serverInfo: {

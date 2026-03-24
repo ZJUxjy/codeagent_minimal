@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "fs"
 import { homedir } from "os"
 import { join, dirname } from "path"
 import type { LopConfig } from "./protocol/types.js"
+import { parseMcpConfig } from "./server/mcp/config.js"
 
 const CONFIG_FILES = [
     "config.json",
@@ -11,6 +12,7 @@ const CONFIG_FILES = [
 
 /** 标准化配置（统一命名） */
 function normalizeConfig(config: any): LopConfig {
+    const parsed = parseMcpConfig(config)
     return {
         provider: config.provider,
         model: config.model,
@@ -19,6 +21,9 @@ function normalizeConfig(config: any): LopConfig {
         // 兼容 url/baseURL 两种命名
         baseURL: config.baseURL ?? config.url,
         debug: config.debug ?? false,
+        // MCP 配置
+        mcpServers: parsed.mcpServers,
+        mcp: parsed.mcp,
     }
 }
 
@@ -76,6 +81,8 @@ export function mergeConfig(options: {
         apiKey: options.cli?.apiKey ?? options.env?.apiKey ?? options.file?.apiKey,
         baseURL: options.cli?.baseURL ?? options.env?.baseURL ?? options.file?.baseURL,
         debug: options.cli?.debug ?? options.env?.debug ?? options.file?.debug,
+        mcpServers: options.file?.mcpServers,
+        mcp: options.file?.mcp,
     }
 }
 

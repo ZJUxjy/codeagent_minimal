@@ -1,7 +1,7 @@
 // src/client/index.ts
 import { spawn, type ChildProcess } from "child_process"
 import * as readline from "readline"
-import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
+import type { JsonRpcRequest, JsonRpcNotification, LopConfig } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 
 /** TUI 主题，与 `src/tui/themes` 中 ThemeId 一致 */
@@ -16,6 +16,9 @@ export interface ClientOptions {
   debug?: boolean
   /** 终端 UI 主题；也可设置环境变量 LOP_THEME */
   theme?: TuiThemeId
+  /** MCP server 配置 */
+  mcpServers?: LopConfig["mcpServers"]
+  mcp?: LopConfig["mcp"]
 }
 
 export type ClientEvent =
@@ -41,6 +44,8 @@ export class Client {
     if (options.apiKey) env.LOP_API_KEY = options.apiKey
     if (options.baseURL) env.LOP_BASE_URL = options.baseURL
     if (this.debug) env.LOP_DEBUG = "true"
+    if (options.mcpServers) env.LOP_MCP_SERVERS = JSON.stringify(options.mcpServers)
+    if (options.mcp) env.LOP_MCP = JSON.stringify(options.mcp)
 
     // 调试日志
     if (this.debug) {

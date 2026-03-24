@@ -29,6 +29,8 @@ async function main() {
     baseURL: fileConfig.baseURL,
     cwd: cliOptions.cwd,
     theme: cliOptions.theme,
+    mcpServers: fileConfig.mcpServers,
+    mcp: fileConfig.mcp,
   };
 
   // 启动 TUI
