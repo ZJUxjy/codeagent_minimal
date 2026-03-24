@@ -4,8 +4,10 @@ import { anthropic } from "@ai-sdk/anthropic"
 import { google } from "@ai-sdk/google"
 import type { CoreMessage, Tool } from "ai"
 import { createThinkTagParser } from "./utils/thinkTagParser.js"
+import type { Provider } from "./protocol/types.js"
 
-export type Provider = "openai" | "anthropic" | "openrouter" | "minimax" | "google"
+// Re-export Provider for backward compatibility
+export { type Provider } from "./protocol/types.js"
 
 export interface LLMConfig {
     provider: Provider

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import type { Tool } from "./types.js"
 import type { McpClient } from "../mcp/client.js"
+import { getErrorMessage } from "../../utils/error.js"
 
 /**
  * Create qualified MCP tool name
@@ -164,8 +165,7 @@ export function createDiscoveredMcpTool(
                 const result = await client.callTool(toolName, params)
                 return normalizeMcpContent(result)
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error)
-                return `Error: ${message}`
+                return `Error: ${getErrorMessage(error)}`
             }
         },
     }

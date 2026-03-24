@@ -2,13 +2,14 @@
 import * as readline from "readline"
 import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
 import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
+import { debugLog, setDebug } from "../config.js"
 
 let agent: Agent | null = null
 let currentCwd = process.cwd()
-let debugEnabled = process.env.LOP_DEBUG === "true"
 let currentAbortController: AbortController | null = null
 
-/** 从环境变量解析 MCP 配置 */
+setDebug(process.env.LOP_DEBUG === "true")
+
 function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
     const config: AgentConfig["mcpConfig"] = {}
 
@@ -31,29 +32,18 @@ function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
     return config
 }
 
-/** 调试日志 */
-function debugLog(...args: unknown[]): void {
-    if (debugEnabled) {
-        console.error("[Server]", ...args)
-    }
-}
-
-/** 发送 JSON-RPC 通知 */
 function sendNotification(method: string, params: unknown): void {
     console.log(JSON.stringify({ jsonrpc: "2.0", method, params }))
 }
 
-/** 发送 JSON-RPC 响应 */
 function sendResponse(id: number | string, result: unknown): void {
     console.log(JSON.stringify({ jsonrpc: "2.0", id, result }))
 }
 
-/** 发送 JSON-RPC 错误 */
 function sendError(id: number | string, code: number, message: string): void {
     console.log(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }))
 }
 
-/** 处理 JSON-RPC 请求 */
 async function handleRequest(request: JsonRpcRequest): Promise<void> {
     const { method, params, id } = request
     const requestId = id ?? 0
@@ -66,7 +56,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 apiKey: process.env.LOP_API_KEY,
                 baseURL: process.env.LOP_BASE_URL,
                 cwd: currentCwd,
-                debug: debugEnabled,
+                debug: process.env.LOP_DEBUG === "true",
                 mcpConfig: getMcpConfigFromEnv(),
             }
 
@@ -218,5 +208,4 @@ rl.on("line", (line) => {
     }
 })
 
-// 保持进程运行
 process.stdin.resume()

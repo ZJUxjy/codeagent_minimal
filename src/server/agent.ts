@@ -1,15 +1,16 @@
 // src/server/agent.ts
-import type { CoreMessage } from "ai"
+import type { CoreMessage, ToolContent } from "ai"
 import { LLMClient } from "../llm.js"
 import { ToolRegistry, type ToolRegistryOptions } from "./tools/index.js"
 import { InMemoryStore, type MessageStore } from "./store.js"
 import { noopHooks, type AgentHooks, type ToolCall } from "./hooks/types.js"
 import type { ToolContext } from "./tools/types.js"
-import type { LopConfig } from "../protocol/types.js"
+import type { LopConfig, Provider } from "../protocol/types.js"
+import { evaluateToolPolicy } from "./security/policy.js"
 
 /** Agent 配置 */
 export interface AgentConfig {
-  provider: "openai" | "anthropic" | "openrouter" | "minimax"
+  provider: Provider
   model: string
   cwd: string
   apiKey?: string
@@ -81,12 +82,19 @@ export class Agent {
     const stream = this.llm.stream(messages, toolDefs)
 
     let assistantContent = ""
+    // Track tool calls this turn for storing with assistant message
+    const toolCallsThisTurn: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = []
     const store = this.store
 
     function checkAborted(): boolean {
       if (signal?.aborted) {
-        if (assistantContent) {
-          store.add({ role: "assistant", content: assistantContent })
+        // Store partial assistant message if aborted
+        if (assistantContent || toolCallsThisTurn.length > 0) {
+          store.add({
+            role: "assistant",
+            content: assistantContent,
+            toolInvocations: toolCallsThisTurn.length > 0 ? toolCallsThisTurn : undefined,
+          } as CoreMessage)
         }
         return true
       }
@@ -114,13 +122,32 @@ export class Agent {
           yield { type: "done", finishReason: "interrupted" }
           return
         }
+        // Track this tool call
+        toolCallsThisTurn.push({
+          toolCallId: event.id,
+          toolName: event.name,
+          args: event.args,
+        })
         yield { type: "tool_call", id: event.id, name: event.name, args: event.args }
         const result = await this.executeTool(event)
+        // Store tool result in message history
+        const toolContent: ToolContent = [
+          { type: "tool-result", toolCallId: event.id, toolName: event.name, result: result.content, isError: result.isError },
+        ]
+        this.store.add({
+          role: "tool",
+          content: toolContent,
+        } as CoreMessage)
         yield { type: "tool_result", id: event.id, content: result.content, isError: result.isError }
 
       } else if (event.type === "done") {
-        if (assistantContent) {
-          this.store.add({ role: "assistant", content: assistantContent })
+        // Store assistant message with tool calls
+        if (assistantContent || toolCallsThisTurn.length > 0) {
+          this.store.add({
+            role: "assistant",
+            content: assistantContent,
+            toolInvocations: toolCallsThisTurn.length > 0 ? toolCallsThisTurn : undefined,
+          } as CoreMessage)
         }
         yield { type: "done", finishReason: event.finishReason }
       }
@@ -135,12 +162,23 @@ export class Agent {
       return { content: `Error: Unknown tool '${call.name}'`, isError: true }
     }
 
+    // Evaluate tool policy
+    const policyDecision = evaluateToolPolicy(call.name, call.args)
+    if (policyDecision === "deny") {
+      return { content: `Error: Tool execution denied by security policy`, isError: true }
+    }
+    if (policyDecision === "ask") {
+      // "ask" requires client interaction - for now, treat as deny with message
+      return { content: `Error: Tool '${call.name}' requires user confirmation (security policy)`, isError: true }
+    }
+
+    // Hook-based policy check (allows external override)
     if (this.hooks.beforeToolExecute) {
       const decision = await this.hooks.beforeToolExecute(call, tool)
       if (decision === "deny") {
         return { content: `Error: Tool execution denied by policy`, isError: true }
       }
-      // TODO: handle "ask" decision (requires client interaction)
+      // "ask" from hook also treated as deny for now (would need client interaction)
     }
 
     const ctx: ToolContext = { cwd: this.cwd }

@@ -109,8 +109,11 @@ export type ServerNotification =
     | ToolResultNotification
     | DoneNotification
 
+/** Provider type */
+export type Provider = "openai" | "anthropic" | "openrouter" | "minimax" | "google"
+
 export interface LopConfig {
-    provider?: "openai" | "anthropic" | "openrouter" | "minimax"
+    provider?: Provider
     model?: string
     apiKey?: string
     baseURL?: string

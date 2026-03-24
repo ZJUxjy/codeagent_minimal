@@ -1,7 +1,8 @@
 import { McpClient, type DiscoveredTool } from "./client.js"
-import type { McpServerConfig } from "../../protocol/types.js"
+import type { McpServerConfig, McpServerStatus } from "../../protocol/types.js"
+import { getErrorMessage } from "../../utils/error.js"
 
-type ServerStatus = "pending" | "connecting" | "connected" | "error"
+type ServerStatus = McpServerStatus["status"]
 
 interface ServerState {
     config: McpServerConfig
@@ -24,17 +25,27 @@ export class McpClientManager {
     }
 
     /**
-     * Discover tools from all configured servers
+     * Discover tools from all configured servers in parallel
      */
     async discoverAll(): Promise<Map<string, DiscoveredTool[]>> {
         const results = new Map<string, DiscoveredTool[]>()
+        const entries = Array.from(this.servers.entries())
 
-        for (const [name, state] of this.servers) {
-            try {
+        const settled = await Promise.allSettled(
+            entries.map(async ([name, state]) => {
                 const tools = await this.discoverOne(name)
-                results.set(name, tools)
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error)
+                return { name, tools }
+            })
+        )
+
+        for (let i = 0; i < settled.length; i++) {
+            const result = settled[i]
+            const [name, state] = entries[i]
+
+            if (result.status === "fulfilled") {
+                results.set(result.value.name, result.value.tools)
+            } else {
+                const message = getErrorMessage(result.reason)
                 console.warn(`Failed to discover MCP server '${name}':`, message)
                 state.status = "error"
                 state.error = message
@@ -71,7 +82,7 @@ export class McpClientManager {
             return tools
         } catch (error) {
             state.status = "error"
-            state.error = error instanceof Error ? error.message : String(error)
+            state.error = getErrorMessage(error)
             throw error
         }
     }

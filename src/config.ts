@@ -40,7 +40,7 @@ export function loadConfig(startDir: string = process.cwd()): LopConfig {
                 try {
                     const content = readFileSync(path, "utf-8")
                     const config = JSON.parse(content)
-                    console.log(`Loaded config from ${path}`)
+                    console.error(`[Config] Loaded config from ${path}`)
                     return normalizeConfig(config)
                 } catch (error: any) {
                     console.warn(`Failed to load config from ${path}:`, error)
