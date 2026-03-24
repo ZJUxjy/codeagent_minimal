@@ -59,6 +59,20 @@ export interface ContentNotification extends JsonRpcNotification {
     }
 }
 
+/** 思考内容通知 */
+export interface ReasoningNotification extends JsonRpcNotification {
+    method: "reasoning"
+    params: {
+        delta: string
+    }
+}
+
+/** 思考内容结束通知 */
+export interface ReasoningEndNotification extends JsonRpcNotification {
+    method: "reasoning_end"
+    params: {}
+}
+
 export interface ToolCallNotification extends JsonRpcNotification {
     method: "tool_call"
     params: {
@@ -89,6 +103,8 @@ export interface DoneNotification extends JsonRpcNotification {
 /** 所有通知类型的联合 */
 export type ServerNotification =
     | ContentNotification
+    | ReasoningNotification
+    | ReasoningEndNotification
     | ToolCallNotification
     | ToolResultNotification
     | DoneNotification
