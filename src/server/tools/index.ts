@@ -6,11 +6,19 @@ import { bashTool } from "./bash.js"
 import { globTool } from "./glob.js"
 import { grepTool } from "./grep.js"
 import { listDirectoryTool } from "./listDirectory.js"
+import { createDiscoveredMcpTool } from "./mcpTool.js"
+import { McpClientManager } from "../mcp/clientManager.js"
+import type { McpServerConfig } from "../../protocol/types.js"
+
+export interface ToolRegistryOptions {
+    mcpServers?: Record<string, McpServerConfig>
+}
 
 export class ToolRegistry {
     private tools = new Map<string, Tool>()
+    private mcpManager?: McpClientManager
 
-    constructor() {
+    constructor(options: ToolRegistryOptions = {}) {
         this.register(readTool)
         this.register(writeTool)
         this.register(editTool)
@@ -18,6 +26,10 @@ export class ToolRegistry {
         this.register(globTool)
         this.register(grepTool)
         this.register(listDirectoryTool)
+
+        if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
+            this.mcpManager = new McpClientManager(options.mcpServers)
+        }
     }
     register(tool: Tool): void {
         this.tools.set(tool.name, tool)
@@ -40,6 +52,56 @@ export class ToolRegistry {
             }
         }
         return defs
+    }
+
+    /**
+     * Discover and register MCP tools from configured servers
+     */
+    async discoverMcpTools(): Promise<void> {
+        if (!this.mcpManager) {
+            return
+        }
+
+        const results = await this.mcpManager.discoverAll()
+
+        for (const [serverName, tools] of results) {
+            // Remove existing tools from this server
+            this.removeMcpToolsByServer(serverName)
+
+            // Register new tools
+            const client = this.mcpManager.getClient(serverName)
+            if (!client) continue
+
+            for (const tool of tools) {
+                const mcpTool = createDiscoveredMcpTool(
+                    tool.serverName,
+                    tool.toolName,
+                    tool.description,
+                    tool.inputSchema,
+                    client
+                )
+                this.register(mcpTool)
+            }
+        }
+    }
+
+    /**
+     * Remove all MCP tools from a specific server
+     */
+    removeMcpToolsByServer(serverName: string): void {
+        const prefix = `mcp__${serverName}__`
+        for (const name of this.tools.keys()) {
+            if (name.startsWith(prefix)) {
+                this.tools.delete(name)
+            }
+        }
+    }
+
+    /**
+     * Get MCP manager for advanced operations
+     */
+    getMcpManager(): McpClientManager | undefined {
+        return this.mcpManager
     }
 }
 
