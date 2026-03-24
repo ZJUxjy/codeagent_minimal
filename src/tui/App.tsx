@@ -37,6 +37,8 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoading, setIsLoading] = useState(false)
     const [streamingContent, setStreamingContent] = useState('')
+    const [thinkingContent, setThinkingContent] = useState('')
+    const [isThinkingStreaming, setIsThinkingStreaming] = useState(false)
 
     const [themeId, setThemeId] = useState<ThemeId>(() =>
         resolveThemeId(clientOptions.theme ?? process.env['LOP_THEME']),
@@ -69,6 +71,26 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
         switch (event.type) {
             case 'content':
                 setStreamingContent(prev => prev + event.delta)
+                break
+            case 'reasoning':
+                setIsThinkingStreaming(true)
+                setThinkingContent(prev => prev + event.delta)
+                break
+            case 'reasoning_end':
+                // 思考结束，将累积的思考内容添加为消息
+                setThinkingContent(prev => {
+                    if (prev) {
+                        setMessages(msgs => [...msgs, {
+                            id: `thinking-${Date.now()}`,
+                            role: 'thinking' as const,
+                            content: prev,
+                            isStreaming: false,
+                            timestamp: Date.now(),
+                        } as Message])
+                    }
+                    return ''
+                })
+                setIsThinkingStreaming(false)
                 break
             case 'tool_call':
                 setMessages(prev => [...prev, {
@@ -227,8 +249,14 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
                     <MessageList
                         messages={messages}
                         streamingContent={streamingContent}
+                        thinkingContent={thinkingContent}
+                        isThinkingStreaming={isThinkingStreaming}
                     />
-                    {isLoading && <LoadingIndicator />}
+                    {isLoading && (
+                        <LoadingIndicator
+                            text={isThinkingStreaming ? "Thinking..." : undefined}
+                        />
+                    )}
                     <InputBox
                         onSubmit={handleSubmit}
                         onClear={handleClear}
