@@ -17,6 +17,8 @@ export interface LLMConfig {
 
 export type StreamEvent =
     | { type: "content"; delta: string }
+    | { type: "reasoning"; delta: string }
+    | { type: "reasoning_end" }
     | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
     | { type: "done"; finishReason: string }
 
@@ -92,20 +94,51 @@ export class LLMClient {
         try {
             this.log(`Calling streamText...`)
             const result = streamText({
-                model, messages, tools: toolDefs, maxSteps: 10,
+                model,
+                messages,
+                tools: toolDefs,
+                maxSteps: 10,
+                // 启用 Anthropic extended thinking
+                ...(this.config.provider === "anthropic" && {
+                    providerOptions: {
+                        anthropic: {
+                            thinking: { type: "enabled", budgetTokens: 16000 },
+                        },
+                    },
+                    headers: {
+                        "anthropic-beta": "interleaved-thinking-2025-05-14",
+                    },
+                }),
             })
 
             this.log(`Stream created, starting iteration...`)
 
             // 遍历流式输出
             try {
+                // 用于追踪 reasoning 状态
+                let wasReasoning = false
+
                 for await (const chunk of result.fullStream) {
                     this.log(`Chunk type: ${chunk.type}`)
 
                     if (chunk.type === "text-delta") {
+                        // 如果之前在 reasoning，现在收到 text-delta，说明 reasoning 结束
+                        if (wasReasoning) {
+                            yield { type: "reasoning_end" }
+                            wasReasoning = false
+                        }
                         // 文本增量
                         yield { type: "content", delta: chunk.textDelta }
+                    } else if (chunk.type === "reasoning") {
+                        // 思考内容增量 (使用类型断言，AI SDK 类型可能滞后)
+                        wasReasoning = true
+                        yield { type: "reasoning", delta: (chunk as unknown as { textDelta: string }).textDelta }
                     } else if (chunk.type === "tool-call") {
+                        // 如果之前在 reasoning，现在收到 tool-call，说明 reasoning 结束
+                        if (wasReasoning) {
+                            yield { type: "reasoning_end" }
+                            wasReasoning = false
+                        }
                         yield {
                             type: "tool_call",
                             id: chunk.toolCallId,
@@ -117,6 +150,12 @@ export class LLMClient {
                         this.log(`API Error:`, chunk.error)
                         yield { type: "done", finishReason: `error: ${chunk.error}` }
                         return
+                    } else if (chunk.type === "step-finish" || chunk.type === "finish") {
+                        // 步骤/流结束时，如果还在 reasoning，发送结束信号
+                        if (wasReasoning) {
+                            yield { type: "reasoning_end" }
+                            wasReasoning = false
+                        }
                     }
                 }
             } catch (streamError: any) {
