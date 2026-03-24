@@ -136,3 +136,11 @@ export interface McpServerConfig {
     includeTools?: string[]
     excludeTools?: string[]
 }
+
+// MCP RPC 类型
+export interface McpServerStatus {
+    name: string
+    status: "pending" | "connecting" | "connected" | "error"
+    error?: string
+    tools?: number
+}

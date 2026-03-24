@@ -132,6 +132,40 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             break
         }
 
+        case "mcp_list": {
+            if (!agent) {
+                sendError(requestId, -32002, "Not initialized")
+                return
+            }
+
+            const manager = agent.getMcpManager()
+            if (!manager) {
+                sendResponse(requestId, { servers: [] })
+                return
+            }
+
+            const status = manager.getStatus()
+            sendResponse(requestId, { servers: status })
+            break
+        }
+
+        case "mcp_reload": {
+            if (!agent) {
+                sendError(requestId, -32002, "Not initialized")
+                return
+            }
+
+            try {
+                await agent.discoverMcpTools()
+                const manager = agent.getMcpManager()
+                const status = manager?.getStatus() ?? []
+                sendResponse(requestId, { servers: status, reloaded: true })
+            } catch (error: any) {
+                sendError(requestId, -32000, error.message)
+            }
+            break
+        }
+
         default:
             sendError(requestId, -32601, `Method not found: ${method}`)
     }

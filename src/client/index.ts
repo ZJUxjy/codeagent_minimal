@@ -162,6 +162,16 @@ export class Client {
     await this.sendRequest("clear")
   }
 
+  /** List MCP server status */
+  async mcpList(): Promise<{ servers: Array<{ name: string; status: string; error?: string }> }> {
+    return this.sendRequest("mcp_list")
+  }
+
+  /** Reload MCP tools */
+  async mcpReload(): Promise<{ servers: Array<{ name: string; status: string; error?: string }>; reloaded: boolean }> {
+    return this.sendRequest("mcp_reload")
+  }
+
   /** 关闭客户端 */
   close(): void {
     this.server.kill()

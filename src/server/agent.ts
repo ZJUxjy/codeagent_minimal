@@ -1,10 +1,11 @@
 // src/server/agent.ts
 import type { CoreMessage } from "ai"
 import { LLMClient } from "../llm.js"
-import { ToolRegistry } from "./tools/index.js"
+import { ToolRegistry, type ToolRegistryOptions } from "./tools/index.js"
 import { InMemoryStore, type MessageStore } from "./store.js"
 import { noopHooks, type AgentHooks, type ToolCall } from "./hooks/types.js"
 import type { ToolContext } from "./tools/types.js"
+import type { LopConfig } from "../protocol/types.js"
 
 /** Agent 配置 */
 export interface AgentConfig {
@@ -16,6 +17,7 @@ export interface AgentConfig {
   debug?: boolean
   store?: MessageStore
   hooks?: AgentHooks
+  mcpConfig?: Pick<LopConfig, "mcpServers" | "mcp">
 }
 
 /** Agent 输出事件 */
@@ -43,10 +45,27 @@ export class Agent {
       baseURL: config.baseURL,
       debug: config.debug,
     })
-    this.tools = new ToolRegistry()
+    const registryOptions: ToolRegistryOptions = config.mcpConfig?.mcpServers
+      ? { mcpServers: config.mcpConfig.mcpServers }
+      : {}
+    this.tools = new ToolRegistry(registryOptions)
     this.store = config.store ?? new InMemoryStore()
     this.hooks = config.hooks ?? noopHooks
     this.cwd = config.cwd
+  }
+
+  /**
+   * Discover MCP tools from configured servers
+   */
+  async discoverMcpTools(): Promise<void> {
+    await this.tools.discoverMcpTools()
+  }
+
+  /**
+   * Get MCP manager for status/reload operations
+   */
+  getMcpManager() {
+    return this.tools.getMcpManager()
   }
 
   /**
