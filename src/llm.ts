@@ -129,9 +129,9 @@ export class LLMClient {
 
             this.log(`Stream created, starting iteration...`)
 
-            // 判断是否需要解析 <think 标签（OpenAI 兼容接口的模型可能使用此格式）
-            const needsThinkTagParsing = ["openai", "openrouter", "minimax"].includes(this.config.provider)
-            const thinkParser = needsThinkTagParsing ? createThinkTagParser() : null
+            // 创建 think 标签解析器（用于处理 OpenAI 兼容接口的 <think> 格式）
+            // 与原生 reasoning chunk 处理共存，不冲突
+            const thinkParser = createThinkTagParser()
 
             // 遍历流式输出
             try {
@@ -148,17 +148,11 @@ export class LLMClient {
                             wasReasoning = false
                         }
 
-                        // 文本增量
+                        // 文本增量 - 解析可能包含的 <think> 标签
                         const text = chunk.textDelta
-
-                        // 如果需要解析 <think 标签
-                        if (thinkParser) {
-                            const events = thinkParser.feed(text)
-                            for (const event of events) {
-                                yield event
-                            }
-                        } else {
-                            yield { type: "content", delta: text }
+                        const events = thinkParser.feed(text)
+                        for (const event of events) {
+                            yield event
                         }
                     } else if (chunk.type === "reasoning") {
                         // 思考内容增量 (使用类型断言，AI SDK 类型可能滞后)
@@ -188,7 +182,7 @@ export class LLMClient {
                             wasReasoning = false
                         }
                         // 如果 think parser 还在思考标签内，也发送结束信号
-                        if (thinkParser?.isInThink()) {
+                        if (thinkParser.isInThink()) {
                             yield { type: "reasoning_end" }
                         }
                     }
@@ -196,6 +190,12 @@ export class LLMClient {
             } catch (streamError: any) {
                 this.log(`Stream error:`, streamError)
                 throw streamError
+            }
+
+            // 流结束，刷新 think parser 剩余内容
+            const flushEvents = thinkParser.flush()
+            for (const event of flushEvents) {
+                yield event
             }
 
             // 流结束，发送完成事件
