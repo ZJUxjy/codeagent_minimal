@@ -7,6 +7,7 @@
 
 const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
+const { ListToolsRequestSchema, CallToolRequestSchema } = require("@modelcontextprotocol/sdk/types.js");
 
 const server = new Server({
   name: "addition-server",
@@ -18,7 +19,7 @@ const server = new Server({
 });
 
 // Register the add tool
-server.setRequestHandler("tools/list", async () => {
+server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
@@ -38,7 +39,7 @@ server.setRequestHandler("tools/list", async () => {
 });
 
 // Handle tool calls
-server.setRequestHandler("tools/call", async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "add") {
     const { a, b } = request.params.arguments;
     const result = a + b;
