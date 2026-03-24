@@ -118,4 +118,21 @@ export interface LopConfig {
     // 兼容配置文件的命名
     token?: string
     url?: string
+    // MCP 配置
+    mcpServers?: Record<string, McpServerConfig>
+    mcp?: { allowed?: string[]; excluded?: string[] }
+}
+
+// MCP Server 配置
+export interface McpServerConfig {
+    command?: string
+    args?: string[]
+    env?: Record<string, string>
+    cwd?: string
+    httpUrl?: string
+    url?: string
+    headers?: Record<string, string>
+    timeout?: number
+    includeTools?: string[]
+    excludeTools?: string[]
 }
