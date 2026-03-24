@@ -7,6 +7,7 @@ import { AssistantProse } from "./markdown/AssistantProse.js"
 import { CodeBlock } from "./markdown/CodeBlock.js"
 import { splitFencedCodeBlocks } from "./markdown/parseFencedCode.js"
 import { splitProseIntoBlocks } from "./markdown/splitProseBlocks.js"
+import { ThinkingMessage } from "./ThinkingMessage.js"
 
 interface MessageItemProps {
     message: Message
@@ -83,6 +84,16 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                             : toolCall.result}
                     </Text>
                 ) : null}
+            </Box>
+        )
+    } else if (message.role === "thinking") {
+        return (
+            <Box marginTop={0}>
+                <ThinkingMessage
+                    content={message.content}
+                    colors={colors}
+                    isStreaming={message.isStreaming}
+                />
             </Box>
         )
     }
