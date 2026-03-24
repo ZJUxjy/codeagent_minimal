@@ -76,16 +76,16 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
             borderStyle="round"
             borderColor="cyan"
             paddingX={2}
-            paddingY={1}
-            marginY={1}
+            paddingY={0}
+            marginY={0}
         >
             {/* 标题 */}
-            <Box justifyContent="center" marginBottom={1}>
+            <Box justifyContent="center" marginBottom={0}>
                 <Text bold color="cyan">
                     ═══════════════════════════════════════
                 </Text>
             </Box>
-            <Box justifyContent="center" marginBottom={1}>
+            <Box justifyContent="center" marginBottom={0}>
                 <Text bold color="yellow">
                     📖 Help & Commands
                 </Text>
@@ -97,14 +97,14 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
             </Box>
 
             {/* 命令列表 */}
-            <Box marginBottom={1}>
+            <Box marginBottom={0}>
                 <Text bold color="green">
                     Available Commands:
                 </Text>
             </Box>
 
             {COMMANDS.map((cmd, index) => (
-                <Box key={cmd.name} flexDirection="column" marginBottom={1}>
+                <Box key={cmd.name} flexDirection="column" marginBottom={0}>
                     <Box>
                         <Text color="cyan" bold>
                             {formatCommandName(cmd)}
@@ -125,14 +125,14 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
             ))}
 
             {/* 分隔线 */}
-            <Box marginY={1}>
+            <Box marginY={0}>
                 <Text color="gray">
                     ───────────────────────────────────────
                 </Text>
             </Box>
 
             {/* 快捷键 */}
-            <Box marginBottom={1}>
+            <Box marginBottom={0}>
                 <Text bold color="green">
                     Keyboard Shortcuts:
                 </Text>
@@ -152,21 +152,21 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
             ))}
 
             {/* 分隔线 */}
-            <Box marginY={1}>
+            <Box marginY={0}>
                 <Text color="gray">
                     ───────────────────────────────────────
                 </Text>
             </Box>
 
             {/* 提示信息 */}
-            <Box marginTop={1}>
+            <Box marginTop={0}>
                 <Text dimColor italic>
                     💡 Type a message to chat with the AI, or use /help anytime to show this dialog.
                 </Text>
             </Box>
 
             {/* 底部边框 */}
-            <Box justifyContent="center" marginTop={1}>
+            <Box justifyContent="center" marginTop={0}>
                 <Text bold color="cyan">
                     ═══════════════════════════════════════
                 </Text>

@@ -172,12 +172,12 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
     // 显示错误状态
     if (error) {
         return (
-            <Box padding={1} flexDirection="column">
+            <Box padding={0} flexDirection="column">
                 <Header
                     model={clientOptions.model ?? 'unknown'}
                     provider={clientOptions.provider ?? 'unknown'}
                 />
-                <Box marginTop={1}>
+                <Box marginTop={0}>
                     <Text color="red">Failed to initialize: {error}</Text>
                 </Box>
             </Box>
@@ -185,7 +185,7 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
     }
 
     return (
-        <Box flexDirection='column' padding={1}>
+        <Box flexDirection='column' padding={0} marginBottom={0}>
             <Header
                 model={clientOptions.model ?? 'unknown'}
                 provider={clientOptions.provider ?? 'unknown'}

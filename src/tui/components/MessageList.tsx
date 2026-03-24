@@ -13,7 +13,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     streamingContent,
 }) => {
     return (
-        <Box flexDirection="column" marginBottom={1}>
+        <Box flexDirection="column" marginBottom={0}>
             {/* 静态历史消息 */}
             <Static items={messages}>
                 {(message) => (

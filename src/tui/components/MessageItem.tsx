@@ -9,7 +9,7 @@ interface MessageItemProps {
 export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
     if (message.role === "user") {
         return (
-            <Box marginTop={1}>
+            <Box marginTop={0}>
                 <Text bold color="green">
                     {"> "}
                 </Text>
@@ -18,7 +18,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
         );
     } else if (message.role === "assistant") {
         return (
-            <Box marginTop={1}>
+            <Box marginTop={0}>
                 <Text color="cyan">{message.content}</Text>
             </Box>
         );
@@ -31,7 +31,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
                   ? "❌"
                   : "🔧";
         return (
-            <Box marginTop={1} flexDirection="column">
+            <Box marginTop={0} flexDirection="column">
                 <Text dimColor>
                     {icon} {toolCall.name}({JSON.stringify(toolCall.args)})
                 </Text>

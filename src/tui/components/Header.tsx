@@ -8,7 +8,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ model, provider }) => {
     return (
-        <Box marginBottom={1}>
+        <Box marginBottom={0} marginTop={1}>
             <Text bold color="magenta">lop_minimal</Text>
             <Text dimColor> v0.1.0 | </Text>
             <Text dimColor>{provider}/{model}</Text>

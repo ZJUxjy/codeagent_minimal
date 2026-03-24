@@ -364,7 +364,7 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
   }, [client]);
 
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" padding={0}>
       <Header
         model={clientOptions.model ?? 'gpt-4o'}
         provider={clientOptions.provider ?? 'openai'}
@@ -443,7 +443,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   streamingContent,
 }) => {
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column" marginBottom={0}>
       {/* 静态历史消息 */}
       <Static items={messages}>
         {(message) => (
@@ -453,7 +453,7 @@ export const MessageList: React.FC<MessageListProps> = ({
 
       {/* 流式输出 */}
       {streamingContent && (
-        <Box marginTop={1}>
+        <Box marginTop={0}>
           <Text color="cyan">{streamingContent}</Text>
         </Box>
       )}
@@ -478,7 +478,7 @@ interface MessageItemProps {
 export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
   if (message.role === 'user') {
     return (
-      <Box marginTop={1}>
+      <Box marginTop={0}>
         <Text bold color="green">{'> '}</Text>
         <Text>{message.content}</Text>
       </Box>
@@ -487,7 +487,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
 
   if (message.role === 'assistant') {
     return (
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={0} flexDirection="column">
         <Text color="cyan">{message.content}</Text>
       </Box>
     );
@@ -499,7 +499,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
                  toolCall.status === 'error' ? '❌' : '🔧';
 
     return (
-      <Box marginTop={1} flexDirection="column">
+      <Box marginTop={0} flexDirection="column">
         <Text dimColor>
           {icon} {toolCall.name}({JSON.stringify(toolCall.args)})
         </Text>
@@ -584,7 +584,7 @@ export const InputBox: React.FC<InputBoxProps> = ({
   };
 
   return (
-    <Box marginTop={1}>
+    <Box marginTop={0}>
       <Text bold color="blue">{disabled ? '...' : '>'} </Text>
       <TextInput
         value={value}
@@ -612,7 +612,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ model, provider }) => {
   return (
-    <Box marginBottom={1}>
+    <Box marginBottom={0}>
       <Text bold color="magenta">lop_minimal</Text>
       <Text dimColor> v0.1.0 | </Text>
       <Text dimColor>{provider}/{model}</Text>
@@ -774,7 +774,7 @@ import { Box, Text } from 'ink';
 
 export const ShortcutsBar: React.FC = () => {
   return (
-    <Box marginTop={1}>
+    <Box marginTop={0}>
       <Text dimColor>
         [Ctrl+C] Exit | [Ctrl+L] Clear | [↑↓] History | [/help] Commands
       </Text>
@@ -801,7 +801,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ error, hint }) => {
       flexDirection="column"
       borderStyle="round"
       borderColor="red"
-      paddingX={1}
+      paddingX={0}
     >
       <Text color="red" bold>❌ Error</Text>
       <Text>{error}</Text>
@@ -865,8 +865,8 @@ export const ToolCallDisplay: React.FC<ToolCallDisplayProps> = ({
       flexDirection="column"
       borderStyle="round"
       borderLeft
-      paddingLeft={1}
-      marginY={1}
+      paddingLeft={0}
+      marginY={0}
     >
       <Box>
         <Text>{statusIcons[status]} </Text>
@@ -1055,7 +1055,7 @@ export const MultiLineInput: React.FC<MultiLineInputProps> = ({
   );
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={0}>
       {lines.map((line, i) => (
         <Box key={i}>
           {isMultiline && (
@@ -1141,7 +1141,7 @@ export const AutoComplete: React.FC<AutoCompleteProps> = ({
   }
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={0}>
       {suggestions.map((suggestion, index) => (
         <Box key={suggestion.label}>
           <Text
@@ -1169,7 +1169,7 @@ import { Box, Text } from 'ink';
 
 export const HelpDialog: React.FC = () => {
   return (
-    <Box flexDirection="column" padding={1} borderStyle="round">
+    <Box flexDirection="column" padding={0} borderStyle="round">
       <Text bold color="cyan">lop_minimal Help</Text>
       <Text> </Text>
       <Text bold>Commands:</Text>

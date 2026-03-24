@@ -136,7 +136,7 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
     }
 
     return (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={0}>
             {/* 并排的两个输入框 */}
             <Box flexDirection="row" gap={0}>
                 {/* 主输入框 */}

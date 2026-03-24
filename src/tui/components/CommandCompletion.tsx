@@ -28,7 +28,7 @@ export const CommandCompletion: React.FC<CommandCompletionProps> = ({
     const partial = inputPrefix.startsWith('/') ? inputPrefix.slice(1).toLowerCase() : ''
 
     return (
-        <Box flexDirection="column" marginTop={1} paddingX={2}>
+        <Box flexDirection="column" marginTop={0} paddingX={2}>
             {commands.map((cmd, index) => {
                 const isSelected = index === selectedIndex
 
@@ -38,7 +38,7 @@ export const CommandCompletion: React.FC<CommandCompletionProps> = ({
                 const remainingPart = commandName.slice(partial.length)
 
                 return (
-                    <Box key={cmd.name} marginLeft={1}>
+                    <Box key={cmd.name} marginLeft={0}>
                         <Text
                             bold={isSelected}
                             color={isSelected ? 'cyan' : undefined}
@@ -59,7 +59,7 @@ export const CommandCompletion: React.FC<CommandCompletionProps> = ({
                 )
             })}
             {/* 提示信息 */}
-            <Box marginTop={1}>
+            <Box marginTop={0}>
                 <Text dimColor>
                     ↑↓ navigate  Tab accept  Esc cancel
                 </Text>
