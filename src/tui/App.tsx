@@ -228,6 +228,14 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         }
     }, [client, config.cwd, processInput, exit])
 
+    const handleInterrupt = useCallback(async () => {
+        if (client) {
+            await client.interrupt()
+        }
+        setIsLoading(false)
+        setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
+    }, [client])
+
     const handleClear = useCallback(async () => {
         if (client) {
             await client.clear()
@@ -266,6 +274,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     <InputBox
                         onSubmit={handleSubmit}
                         onClear={handleClear}
+                        onInterrupt={handleInterrupt}
                         disabled={isLoading || !isReady}
                         commands={registry.getVisibleCommands()}
                     />

@@ -6,6 +6,7 @@ import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 let agent: Agent | null = null
 let currentCwd = process.cwd()
 let debugEnabled = process.env.LOP_DEBUG === "true"
+let currentAbortController: AbortController | null = null
 
 /** 调试日志 */
 function debugLog(...args: unknown[]): void {
@@ -81,7 +82,8 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             }
 
             try {
-                for await (const event of agent.run(message)) {
+                currentAbortController = new AbortController()
+                for await (const event of agent.run(message, currentAbortController.signal)) {
                     switch (event.type) {
                         case "content":
                             sendNotification("content", { delta: event.delta })
@@ -108,7 +110,17 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 sendResponse(requestId, {})
             } catch (error: any) {
                 sendError(requestId, -32000, error.message)
+            } finally {
+                currentAbortController = null
             }
+            break
+        }
+
+        case "interrupt": {
+            if (currentAbortController) {
+                currentAbortController.abort()
+            }
+            sendResponse(requestId, {})
             break
         }
 

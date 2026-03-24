@@ -152,6 +152,11 @@ export class Client {
     await this.sendRequest("chat", { message, cwd })
   }
 
+  /** Interrupt the current execution */
+  async interrupt(): Promise<void> {
+    await this.sendRequest("interrupt")
+  }
+
   /** 清空对话历史 */
   async clear(): Promise<void> {
     await this.sendRequest("clear")

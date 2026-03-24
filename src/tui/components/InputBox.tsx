@@ -4,18 +4,19 @@ import { CommandCompletion } from './CommandCompletion.js'
 import { MultilineTextInput } from './MultilineTextInput.js'
 import { useInputBuffer } from '../hooks/useInputBuffer.js'
 import { useInputHistory } from '../hooks/useInputHistory.js'
-import { usePasteHandler } from '../contexts/KeypressContext.js'
+import { usePasteHandler, useKeyHandler } from '../contexts/KeypressContext.js'
 import type { SlashCommand } from '../../commands/types.js'
 import { useTheme } from '../themes/ThemeContext.js'
 
 interface InputBoxProps {
     onSubmit: (value: string) => void
     onClear: () => void
+    onInterrupt?: () => void
     disabled?: boolean
     commands?: SlashCommand[]
 }
 
-export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBoxProps) => {
+export const InputBox = ({ onSubmit, onClear, onInterrupt, disabled, commands = [] }: InputBoxProps) => {
     const { colors } = useTheme()
     const buffer = useInputBuffer()
     const history = useInputHistory(buffer)
@@ -54,8 +55,24 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
         { isActive: isMainFocused },
     )
 
+    useKeyHandler(
+        useCallback((key) => {
+            if (key.type === 'backspace') {
+                buffer.backspace()
+            } else if (key.type === 'forwardDelete') {
+                buffer.delete()
+            }
+        }, [buffer]),
+        { isActive: isMainFocused },
+    )
+
     useInput((input, key) => {
-        if (disabled) return
+        if (disabled) {
+            if (key.escape) {
+                onInterrupt?.()
+            }
+            return
+        }
 
         if (key.tab) {
             if (focusIndex === 0 && showCompletion && selectedCommand) {
@@ -187,15 +204,6 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
             buffer.move('right')
             return
         }
-        if (key.backspace) {
-            buffer.backspace()
-            return
-        }
-        if (key.delete) {
-            buffer.delete()
-            return
-        }
-
         if (input && !key.ctrl && !key.meta) {
             setPendingBackslash(input === '\\')
             buffer.insert(input)

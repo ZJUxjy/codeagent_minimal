@@ -54,7 +54,7 @@ export class Agent {
    * @param userMessage 用户输入
    * @yields AgentEvent 流式事件
    */
-  async *run(userMessage: string): AsyncGenerator<AgentEvent> {
+  async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
     this.store.add({ role: "user", content: userMessage })
 
     const messages = this.store.getAll()
@@ -62,8 +62,24 @@ export class Agent {
     const stream = this.llm.stream(messages, toolDefs)
 
     let assistantContent = ""
+    const store = this.store
+
+    function checkAborted(): boolean {
+      if (signal?.aborted) {
+        if (assistantContent) {
+          store.add({ role: "assistant", content: assistantContent })
+        }
+        return true
+      }
+      return false
+    }
 
     for await (const event of stream) {
+      if (checkAborted()) {
+        yield { type: "done", finishReason: "interrupted" }
+        return
+      }
+
       if (event.type === "content") {
         assistantContent += event.delta
         yield { type: "content", delta: event.delta }
@@ -75,6 +91,10 @@ export class Agent {
         yield { type: "reasoning_end" }
 
       } else if (event.type === "tool_call") {
+        if (checkAborted()) {
+          yield { type: "done", finishReason: "interrupted" }
+          return
+        }
         yield { type: "tool_call", id: event.id, name: event.name, args: event.args }
         const result = await this.executeTool(event)
         yield { type: "tool_result", id: event.id, content: result.content, isError: result.isError }
