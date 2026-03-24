@@ -30,7 +30,10 @@ export type InputBufferAction =
 	| { type: "clear" }
 	| { type: "snapshot" }
 	| { type: "undo" }
-	| { type: "redo" };
+	| { type: "redo" }
+	| { type: "replace_range_by_offset"; start: number; end: number; replacement: string };
+
+const MAX_UNDO_STACK = 100;
 
 const INITIAL: InputBufferState = {
 	lines: [""],
@@ -251,7 +254,9 @@ function reducer(state: InputBufferState, action: InputBufferAction): InputBuffe
 
 		case "snapshot": {
 			const frame: UndoFrame = { lines, cursorRow, cursorCol };
-			return { ...state, undoStack: [...state.undoStack, frame], redoStack: [] };
+			const stack = [...state.undoStack, frame];
+			if (stack.length > MAX_UNDO_STACK) stack.shift();
+			return { ...state, undoStack: stack, redoStack: [] };
 		}
 
 		case "undo": {
@@ -282,6 +287,26 @@ function reducer(state: InputBufferState, action: InputBufferAction): InputBuffe
 			};
 		}
 
+		case "replace_range_by_offset": {
+			const fullText = lines.join("\n");
+			const { start, end, replacement } = action;
+			const newText = fullText.slice(0, start) + replacement + fullText.slice(end);
+			const newLines = newText === "" ? [""] : newText.split("\n");
+			const newOffset = start + replacement.length;
+			let remaining = newOffset;
+			let newRow = 0;
+			while (newRow < newLines.length - 1 && remaining > newLines[newRow].length) {
+				remaining -= newLines[newRow].length + 1;
+				newRow++;
+			}
+			return {
+				...state,
+				lines: newLines,
+				cursorRow: newRow,
+				cursorCol: remaining,
+			};
+		}
+
 		default:
 			return state;
 	}
@@ -309,6 +334,11 @@ export function useInputBuffer() {
 	const snapshot = useCallback(() => dispatch({ type: "snapshot" }), []);
 	const undo = useCallback(() => dispatch({ type: "undo" }), []);
 	const redo = useCallback(() => dispatch({ type: "redo" }), []);
+	const replaceRangeByOffset = useCallback(
+		(start: number, end: number, replacement: string) =>
+			dispatch({ type: "replace_range_by_offset", start, end, replacement }),
+		[],
+	);
 
 	return {
 		text,
@@ -330,6 +360,7 @@ export function useInputBuffer() {
 		snapshot,
 		undo,
 		redo,
+		replaceRangeByOffset,
 	};
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { CommandCompletion } from './CommandCompletion.js'
 import { MultilineTextInput } from './MultilineTextInput.js'
@@ -7,6 +7,10 @@ import { useInputHistory } from '../hooks/useInputHistory.js'
 import { usePasteHandler, useKeyHandler } from '../contexts/KeypressContext.js'
 import type { SlashCommand } from '../../commands/types.js'
 import { useTheme } from '../themes/ThemeContext.js'
+import { escapeRegex } from '../../utils/regex.js'
+
+const LARGE_PASTE_CHAR_THRESHOLD = 1000;
+const LARGE_PASTE_LINE_THRESHOLD = 10;
 
 interface InputBoxProps {
     onSubmit: (value: string) => void
@@ -26,6 +30,45 @@ export const InputBox = ({ onSubmit, onClear, onInterrupt, disabled, commands = 
     const isMainFocused = focusIndex === 0 && !disabled
     const text = buffer.text
     const [pendingBackslash, setPendingBackslash] = useState(false)
+
+    // Large paste placeholder state
+    const [pendingPastes, setPendingPastes] = useState<Map<string, string>>(new Map())
+    const activePlaceholderIds = useRef<Map<number, Set<number>>>(new Map())
+
+    const nextLargePastePlaceholder = useCallback((charCount: number): string => {
+        const activeIds = activePlaceholderIds.current.get(charCount) ?? new Set<number>()
+        let id = 1
+        while (activeIds.has(id)) { id++ }
+        activeIds.add(id)
+        activePlaceholderIds.current.set(charCount, activeIds)
+        const base = `[Pasted Content ${charCount} chars]`
+        return id === 1 ? base : `${base} #${id}`
+    }, [])
+
+    const freePlaceholderId = useCallback((placeholder: string) => {
+        const match = placeholder.match(/^\[Pasted Content (\d+) chars\](?: #(\d+))?$/)
+        if (!match) return
+        const charCount = parseInt(match[1], 10)
+        const id = match[2] ? parseInt(match[2], 10) : 1
+        const activeIds = activePlaceholderIds.current.get(charCount)
+        if (activeIds) {
+            activeIds.delete(id)
+            if (activeIds.size === 0) {
+                activePlaceholderIds.current.delete(charCount)
+            }
+        }
+    }, [])
+
+    const placeholderRegex = useMemo(() => {
+        if (pendingPastes.size === 0) return null
+        const placeholders = Array.from(pendingPastes.keys()).sort((a, b) => b.length - a.length)
+        return new RegExp(placeholders.map(escapeRegex).join('|'), 'g')
+    }, [pendingPastes])
+
+    const expandPlaceholders = useCallback((raw: string): string => {
+        if (!placeholderRegex) return raw
+        return raw.replace(placeholderRegex, match => pendingPastes.get(match) ?? match)
+    }, [placeholderRegex, pendingPastes])
 
     const matchedCommands = useMemo(() => {
         if (!text.startsWith('/')) return []
@@ -49,20 +92,57 @@ export const InputBox = ({ onSubmit, onClear, onInterrupt, disabled, commands = 
 
     usePasteHandler(
         useCallback((key) => {
-            buffer.snapshot()
-            buffer.insert(key.sequence)
-        }, [buffer]),
+            const pasted = key.sequence.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+            const charCount = [...pasted].length
+            const lineCount = pasted.split('\n').length
+
+            if (charCount > LARGE_PASTE_CHAR_THRESHOLD || lineCount > LARGE_PASTE_LINE_THRESHOLD) {
+                const placeholder = nextLargePastePlaceholder(charCount)
+                setPendingPastes(prev => {
+                    const next = new Map(prev)
+                    next.set(placeholder, pasted)
+                    return next
+                })
+                buffer.snapshot()
+                buffer.insert(placeholder)
+            } else {
+                buffer.snapshot()
+                buffer.insert(pasted)
+            }
+        }, [buffer, nextLargePastePlaceholder]),
         { isActive: isMainFocused },
     )
 
     useKeyHandler(
         useCallback((key) => {
             if (key.type === 'backspace') {
+                if (pendingPastes.size > 0) {
+                    const { row, col } = buffer.cursor
+                    let offset = 0
+                    for (let i = 0; i < row; i++) {
+                        offset += buffer.lines[i].length + 1
+                    }
+                    offset += col
+                    const currentText = buffer.text
+                    for (const placeholder of pendingPastes.keys()) {
+                        const placeholderStart = offset - placeholder.length
+                        if (placeholderStart >= 0 && currentText.slice(placeholderStart, offset) === placeholder) {
+                            buffer.replaceRangeByOffset(placeholderStart, offset, '')
+                            setPendingPastes(prev => {
+                                const next = new Map(prev)
+                                next.delete(placeholder)
+                                return next
+                            })
+                            freePlaceholderId(placeholder)
+                            return
+                        }
+                    }
+                }
                 buffer.backspace()
             } else if (key.type === 'forwardDelete') {
                 buffer.delete()
             }
-        }, [buffer]),
+        }, [buffer, pendingPastes, freePlaceholderId]),
         { isActive: isMainFocused },
     )
 
@@ -120,7 +200,10 @@ export const InputBox = ({ onSubmit, onClear, onInterrupt, disabled, commands = 
             setPendingBackslash(false)
             buffer.snapshot()
             history.push(text)
-            onSubmit(text)
+            const finalValue = expandPlaceholders(text)
+            setPendingPastes(new Map())
+            activePlaceholderIds.current.clear()
+            onSubmit(finalValue)
             buffer.clear()
             return
         }

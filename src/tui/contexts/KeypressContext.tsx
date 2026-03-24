@@ -48,25 +48,25 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 		}
 	}, []);
 
+	// Use refs to avoid effect re-runs when these callbacks change
+	const broadcastRef = useRef(broadcast);
+	const broadcastKeyRef = useRef(broadcastKey);
+	broadcastRef.current = broadcast;
+	broadcastKeyRef.current = broadcastKey;
+
 	useEffect(() => {
 		process.stdout.write("\x1b[?2004h");
 
 		const handleData = (data: Buffer) => {
 			const str = data.toString();
 
-			// \x7f = physical Backspace on modern terminals
-			// \x08 = Ctrl+H / legacy backspace (some SSH sessions and stty erase ^H configs)
-			// Both mean "delete char before cursor". Ink maps \x7f to key.delete (wrong),
-			// so we intercept at the raw level to ensure correct semantics.
-			// NOTE: Do NOT add key.backspace / key.delete handlers in InputBox useInput —
-			// backspace and forward-delete are handled here via useKeyHandler.
+			// Ink maps \x7f to key.delete incorrectly; intercept at raw level for correct semantics
 			if (str === '\x7f' || str === '\x08') {
-				broadcastKey({ type: 'backspace' });
+				broadcastKeyRef.current({ type: 'backspace' });
 				return;
 			}
-			// \x1b[3~ = Forward Delete key
 			if (str === '\x1b[3~') {
-				broadcastKey({ type: 'forwardDelete' });
+				broadcastKeyRef.current({ type: 'forwardDelete' });
 				return;
 			}
 
@@ -81,7 +81,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 					const text = pasteBuffer.current.slice(0, end);
 					isPasting.current = false;
 					pasteBuffer.current = "";
-					broadcast({ paste: true, sequence: text });
+					broadcastRef.current({ paste: true, sequence: text });
 				}
 				return;
 			}
@@ -92,7 +92,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 					const text = pasteBuffer.current;
 					isPasting.current = false;
 					pasteBuffer.current = "";
-					broadcast({ paste: true, sequence: text });
+					broadcastRef.current({ paste: true, sequence: text });
 				} else {
 					pasteBuffer.current += str;
 				}
@@ -105,7 +105,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 			process.stdin.off("data", handleData);
 			process.stdout.write("\x1b[?2004l");
 		};
-	}, [broadcast, broadcastKey]);
+	}, []);
 
 	const subscribePaste = useCallback((handler: PasteHandler) => {
 		subscribers.current.add(handler);
