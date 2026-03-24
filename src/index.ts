@@ -1,6 +1,6 @@
 import { startTUI } from './tui/index.js';
 import { loadConfig } from './config.js';
-import type { ClientOptions } from './client/index.js';
+import type { ClientOptions, TuiThemeId } from './client/index.js';
 
 async function main() {
   const fileConfig = loadConfig();
@@ -17,6 +17,8 @@ async function main() {
       cliOptions.model = args[++i];
     } else if (arg === '-d' || arg === '--directory') {
       cliOptions.cwd = args[++i];
+    } else if (arg === '--theme') {
+      cliOptions.theme = args[++i] as TuiThemeId;
     }
   }
 
@@ -26,6 +28,7 @@ async function main() {
     apiKey: fileConfig.apiKey,
     baseURL: fileConfig.baseURL,
     cwd: cliOptions.cwd,
+    theme: cliOptions.theme,
   };
 
   // 启动 TUI

@@ -1,21 +1,19 @@
-import React,{useState,useEffect} from "react";
-import { Text } from "ink";
-const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+import React from "react"
+import { Text } from "ink"
+import Spinner from "ink-spinner"
+import { useTheme } from "../themes/ThemeContext.js"
 
-export const LoadingIndicator: React.FC = () =>{
-    const [frame,setFrame] = useState(0)
+interface LoadingIndicatorProps {
+    text?: string
+}
 
-    useEffect(()=>{
-        const timer = setInterval(()=>{
-            setFrame(prev => (prev+1)%frames.length)
-        },80)
-
-        return () => clearInterval(timer)
-    },[])
-
-    return(
-        <Text dimColor>
-            {frames[frame]} Thinking...
+export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({
+    text = "Thinking...",
+}) => {
+    const { colors } = useTheme()
+    return (
+        <Text color={colors.text.secondary}>
+            <Spinner type="dots12" /> {text}
         </Text>
     )
 }

@@ -32,6 +32,19 @@ export interface CommandContext {
 
     /** 退出应用 */
     quit: () => void
+
+    /**
+     * 终端主题（内置 palette 切换）
+     * 由 TUI App 注入，供 /theme 等命令使用
+     */
+    theme: {
+        /** 当前主题 id，如 dark */
+        currentId: string
+        /** 应用主题；非法 id 返回 false */
+        applyTheme: (rawId: string) => boolean
+        /** 可切换的内置主题 */
+        listBuiltins: () => Array<{ id: string; displayName: string }>
+    }
 }
 
 /** 命令返回类型 */

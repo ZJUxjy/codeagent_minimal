@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import React from 'react';
+import { useTheme } from '../themes/ThemeContext.js';
 
 interface CommandInfo {
     name: string;
@@ -64,6 +65,7 @@ function formatCommandName(cmd: CommandInfo): string {
 }
 
 export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
+    const { colors } = useTheme();
     if (!visible) return null;
 
     const maxCmdLength = Math.max(
@@ -74,31 +76,31 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
         <Box
             flexDirection="column"
             borderStyle="round"
-            borderColor="cyan"
+            borderColor={colors.border.focused}
             paddingX={2}
             paddingY={0}
             marginY={0}
         >
             {/* 标题 */}
             <Box justifyContent="center" marginBottom={0}>
-                <Text bold color="cyan">
+                <Text bold color={colors.border.focused}>
                     ═══════════════════════════════════════
                 </Text>
             </Box>
             <Box justifyContent="center" marginBottom={0}>
-                <Text bold color="yellow">
+                <Text bold color={colors.status.warning}>
                     📖 Help & Commands
                 </Text>
             </Box>
             <Box justifyContent="center" marginBottom={2}>
-                <Text bold color="cyan">
+                <Text bold color={colors.border.focused}>
                     ═══════════════════════════════════════
                 </Text>
             </Box>
 
             {/* 命令列表 */}
             <Box marginBottom={0}>
-                <Text bold color="green">
+                <Text bold color={colors.status.success}>
                     Available Commands:
                 </Text>
             </Box>
@@ -106,7 +108,7 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
             {COMMANDS.map((cmd, index) => (
                 <Box key={cmd.name} flexDirection="column" marginBottom={0}>
                     <Box>
-                        <Text color="cyan" bold>
+                        <Text color={colors.border.focused} bold>
                             {formatCommandName(cmd)}
                         </Text>
                         <Text> - </Text>
@@ -115,8 +117,8 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
                     {/* 子命令 */}
                     {cmd.subCommands?.map(sub => (
                         <Box key={sub.name} marginLeft={maxCmdLength + 4}>
-                            <Text color="magenta">/{cmd.name} </Text>
-                            <Text color="magenta" bold>{sub.name}</Text>
+                            <Text color={colors.text.accent}>/{cmd.name} </Text>
+                            <Text color={colors.text.accent} bold>{sub.name}</Text>
                             <Text> - </Text>
                             <Text dimColor>{sub.description}</Text>
                         </Box>
@@ -126,14 +128,14 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
 
             {/* 分隔线 */}
             <Box marginY={0}>
-                <Text color="gray">
+                <Text color={colors.text.secondary}>
                     ───────────────────────────────────────
                 </Text>
             </Box>
 
             {/* 快捷键 */}
             <Box marginBottom={0}>
-                <Text bold color="green">
+                <Text bold color={colors.status.success}>
                     Keyboard Shortcuts:
                 </Text>
             </Box>
@@ -141,7 +143,7 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
             {SHORTCUTS.map(shortcut => (
                 <Box key={shortcut.key} marginBottom={0}>
                     <Box width={12}>
-                        <Text color="yellow" bold>
+                        <Text color={colors.status.warning} bold>
                             {shortcut.key}
                         </Text>
                     </Box>
@@ -153,7 +155,7 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
 
             {/* 分隔线 */}
             <Box marginY={0}>
-                <Text color="gray">
+                <Text color={colors.text.secondary}>
                     ───────────────────────────────────────
                 </Text>
             </Box>
@@ -167,7 +169,7 @@ export const HelpDialog = ({ visible = true }: HelpDialogProps) => {
 
             {/* 底部边框 */}
             <Box justifyContent="center" marginTop={0}>
-                <Text bold color="cyan">
+                <Text bold color={colors.border.focused}>
                     ═══════════════════════════════════════
                 </Text>
             </Box>

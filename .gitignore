@@ -4,3 +4,4 @@ dist/
 .DS_Store
 config.json
 minimax_settings.json
+CLAUDE.md

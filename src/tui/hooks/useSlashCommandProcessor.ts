@@ -5,7 +5,10 @@ import { parseCommand, isCommand } from '../utils/commandParser.js'
 import type { Client } from '../../client/index.js'
 import type { LopConfig } from '../../protocol/types.js'
 import type { Message } from '../types.js'
-import type { CommandContext, SlashCommandActionReturn } from '../../commands/types.js'
+import type {
+    CommandContext,
+    SlashCommandActionReturn,
+} from '../../commands/types.js'
 
 /**
  * Hook 选项
@@ -31,6 +34,9 @@ export interface UseSlashCommandProcessorOptions {
 
     /** 退出应用 */
     quit: () => void
+
+    /** 主题切换（注入 CommandContext.theme） */
+    theme: CommandContext['theme']
 }
 
 /**
@@ -60,7 +66,7 @@ export interface UseSlashCommandProcessorReturn {
 export function useSlashCommandProcessor(
     options: UseSlashCommandProcessorOptions
 ): UseSlashCommandProcessorReturn {
-    const { client, config, ui, quit } = options
+    const { client, config, ui, quit, theme } = options
 
     // 1. 创建命令注册表（只执行一次）
     const registry = useMemo(() => {
@@ -101,6 +107,7 @@ export function useSlashCommandProcessor(
             ui,
             getVisibleCommands: () => registry.getVisibleCommands(),
             quit,
+            theme,
         }
 
         try {
@@ -116,7 +123,7 @@ export function useSlashCommandProcessor(
             ui.addSystemMessage(`Command error: ${errorMessage}`, true)
             return { type: 'handled' }
         }
-    }, [client, config, ui, quit, registry])
+    }, [client, config, ui, quit, theme, registry])
 
     return {
         registry,

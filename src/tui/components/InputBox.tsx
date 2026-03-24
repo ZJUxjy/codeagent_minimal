@@ -3,6 +3,7 @@ import { Box, Text, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
 import { CommandCompletion } from './CommandCompletion.js'
 import type { SlashCommand } from '../../commands/types.js'
+import { useTheme } from '../themes/ThemeContext.js'
 
 interface InputBoxProps {
     onSubmit: (value: string) => void
@@ -12,6 +13,7 @@ interface InputBoxProps {
 }
 
 export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBoxProps) => {
+    const { colors } = useTheme()
     const [value, setValue] = useState('')
     const [history, setHistory] = useState<string[]>([])
     const [historyIndex, setHistoryIndex] = useState(-1)
@@ -63,7 +65,12 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
 
     useInput((_input, key) => {
         if (disabled) return
-
+        if(key.ctrl && key.backspace) {
+            console.log('ctrl+backspace')
+            setValue('')
+            setInputKey(k => k + 1)
+            return
+        }
         // Tab 键：有补全列表时补全，否则切换焦点
         if (key.tab) {
             if (focusIndex === 0 && selectedCommand) {
@@ -140,9 +147,9 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
             {/* 并排的两个输入框 */}
             <Box flexDirection="row" gap={0}>
                 {/* 主输入框 */}
-                <Box borderStyle="round" borderColor={focusIndex === 0 ? 'cyan' : 'gray'} flexGrow={focusIndex === 0 ? 8 : 2} flexBasis={0} 
+                <Box borderStyle="round" borderColor={focusIndex === 0 ? colors.border.focused : colors.border.default} flexGrow={focusIndex === 0 ? 8 : 2} flexBasis={0} 
                 height={focusIndex===0?'auto':3} width={'auto'}>
-                    <Text bold color={disabled ? 'gray' : (focusIndex === 0 ? 'blue' : 'gray')}>
+                    <Text bold color={disabled ? colors.text.secondary : (focusIndex === 0 ? colors.border.focused : colors.text.secondary)}>
                         {disabled ? '...' : '>'}
                     </Text>
                     <TextInput
@@ -157,10 +164,10 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
                 </Box>
 
                 {/* 测试输入框 */}
-                <Box borderStyle="round" borderColor={focusIndex === 1 ? 'green' : 'gray'} flexGrow={focusIndex === 1 ? 8 : 2} flexBasis={0}
+                <Box borderStyle="round" borderColor={focusIndex === 1 ? colors.status.success : colors.border.default} flexGrow={focusIndex === 1 ? 8 : 2} flexBasis={0}
                 height={focusIndex===1?'auto':3} width={'auto'}
                 >
-                    <Text bold color={focusIndex === 1 ? 'green' : 'gray'}>
+                    <Text bold color={focusIndex === 1 ? colors.status.success : colors.text.secondary}>
                         {'[TEST] '}
                     </Text>
                     <TextInput

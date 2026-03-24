@@ -4,6 +4,9 @@ import * as readline from "readline"
 import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 
+/** TUI 主题，与 `src/tui/themes` 中 ThemeId 一致 */
+export type TuiThemeId = "dark" | "light" | "ansi"
+
 export interface ClientOptions {
   cwd?: string
   provider?: string
@@ -11,6 +14,8 @@ export interface ClientOptions {
   apiKey?: string
   baseURL?: string
   debug?: boolean
+  /** 终端 UI 主题；也可设置环境变量 LOP_THEME */
+  theme?: TuiThemeId
 }
 
 export type ClientEvent =

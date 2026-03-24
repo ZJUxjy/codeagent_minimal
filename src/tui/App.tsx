@@ -1,5 +1,6 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Box, Text, useApp } from 'ink'
+import { ThemeProvider, useTheme } from './themes/ThemeContext.js'
 import { Header } from './components/Header.js'
 import { MessageList } from './components/MessageList.js'
 import { InputBox } from './components/InputBox.js'
@@ -9,9 +10,24 @@ import { useSlashCommandProcessor } from './hooks/useSlashCommandProcessor.js'
 import type { Message } from './types.js'
 import type { ClientOptions } from '../client/index.js'
 import type { LopConfig } from '../protocol/types.js'
+import type { ThemeId } from './themes/types.js'
+import {
+    listBuiltinThemes,
+    resolveThemeId,
+    tryParseThemeId,
+} from './themes/presets.js'
 
 interface AppProps {
     clientOptions: ClientOptions
+}
+
+function InitErrorText({ message }: { message: string }) {
+    const { colors } = useTheme()
+    return (
+        <Text color={colors.status.error}>
+            Failed to initialize: {message}
+        </Text>
+    )
 }
 
 export const App: React.FC<AppProps> = ({ clientOptions }) => {
@@ -21,6 +37,26 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoading, setIsLoading] = useState(false)
     const [streamingContent, setStreamingContent] = useState('')
+
+    const [themeId, setThemeId] = useState<ThemeId>(() =>
+        resolveThemeId(clientOptions.theme ?? process.env['LOP_THEME']),
+    )
+
+    const applyTheme = useCallback((rawId: string): boolean => {
+        const id = tryParseThemeId(rawId)
+        if (!id) return false
+        setThemeId(id)
+        return true
+    }, [])
+
+    const themeControl = useMemo(
+        () => ({
+            currentId: themeId,
+            applyTheme,
+            listBuiltins: listBuiltinThemes,
+        }),
+        [themeId, applyTheme],
+    )
 
     // 用 ref 存储 streamingContent，让事件处理器能访问最新值
     const streamingContentRef = useRef('')
@@ -119,6 +155,7 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
         config,
         ui: uiOps,
         quit: exit,
+        theme: themeControl,
     })
 
     // 处理用户输入
@@ -169,38 +206,37 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
         }
     }, [client])
 
-    // 显示错误状态
-    if (error) {
-        return (
-            <Box padding={0} flexDirection="column">
-                <Header
-                    model={clientOptions.model ?? 'unknown'}
-                    provider={clientOptions.provider ?? 'unknown'}
-                />
-                <Box marginTop={0}>
-                    <Text color="red">Failed to initialize: {error}</Text>
-                </Box>
-            </Box>
-        )
-    }
-
     return (
-        <Box flexDirection='column' padding={0} marginBottom={0}>
-            <Header
-                model={clientOptions.model ?? 'unknown'}
-                provider={clientOptions.provider ?? 'unknown'}
-            />
-            <MessageList
-                messages={messages}
-                streamingContent={streamingContent}
-            />
-            {isLoading && <LoadingIndicator />}
-            <InputBox
-                onSubmit={handleSubmit}
-                onClear={handleClear}
-                disabled={isLoading || !isReady}
-                commands={registry.getVisibleCommands()}
-            />
-        </Box>
+        <ThemeProvider themeId={themeId}>
+            {error ? (
+                <Box padding={0} flexDirection="column">
+                    <Header
+                        model={clientOptions.model ?? 'unknown'}
+                        provider={clientOptions.provider ?? 'unknown'}
+                    />
+                    <Box marginTop={0}>
+                        <InitErrorText message={error} />
+                    </Box>
+                </Box>
+            ) : (
+                <Box flexDirection="column" padding={0} marginBottom={0}>
+                    <Header
+                        model={clientOptions.model ?? 'unknown'}
+                        provider={clientOptions.provider ?? 'unknown'}
+                    />
+                    <MessageList
+                        messages={messages}
+                        streamingContent={streamingContent}
+                    />
+                    {isLoading && <LoadingIndicator />}
+                    <InputBox
+                        onSubmit={handleSubmit}
+                        onClear={handleClear}
+                        disabled={isLoading || !isReady}
+                        commands={registry.getVisibleCommands()}
+                    />
+                </Box>
+            )}
+        </ThemeProvider>
     )
 }

@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { SlashCommand } from '../../commands/types.js'
+import { useTheme } from '../themes/ThemeContext.js'
 
 interface CommandCompletionProps {
     /** 匹配的命令列表 */
@@ -22,6 +23,7 @@ export const CommandCompletion: React.FC<CommandCompletionProps> = ({
     selectedIndex,
     inputPrefix,
 }) => {
+    const { colors } = useTheme()
     if (commands.length === 0) return null
 
     // 提取用户输入的命令部分（去掉开头的 /）
@@ -41,12 +43,12 @@ export const CommandCompletion: React.FC<CommandCompletionProps> = ({
                     <Box key={cmd.name} marginLeft={0}>
                         <Text
                             bold={isSelected}
-                            color={isSelected ? 'cyan' : undefined}
+                            color={isSelected ? colors.border.focused : undefined}
                             inverse={isSelected}
                         >
                             {isSelected ? '❯ ' : '  '}
                             /
-                            <Text bold color={isSelected ? 'white' : 'cyan'}>
+                            <Text bold color={isSelected ? colors.text.primary : colors.border.focused}>
                                 {matchedPart}
                             </Text>
                             {remainingPart}
