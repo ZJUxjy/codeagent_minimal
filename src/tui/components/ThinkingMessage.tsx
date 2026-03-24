@@ -16,9 +16,6 @@ export const ThinkingMessage: React.FC<ThinkingMessageProps> = ({
 }) => {
     const [isCollapsed, setIsCollapsed] = useState(true)
     const hasTimerStartedRef = useRef(false)
-    const contentRef = useRef(content)
-
-    contentRef.current = content
 
     const lines = useMemo(() => content.split("\n"), [content])
 
@@ -33,9 +30,7 @@ export const ThinkingMessage: React.FC<ThinkingMessageProps> = ({
         if (!isStreaming && content.length > 0 && !hasTimerStartedRef.current) {
             hasTimerStartedRef.current = true
             const timer = setTimeout(() => {
-                if (contentRef.current.length > 0) {
-                    setIsCollapsed(true)
-                }
+                setIsCollapsed(true)
             }, 500)
             return () => clearTimeout(timer)
         }

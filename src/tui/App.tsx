@@ -42,7 +42,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         isThinkingStreaming: false,
     })
 
-    // 终端 resize 处理：通过 Ink instance.clear() 重置内部状态 + 清屏 + 强制 Static 重新挂载
+    // Terminal resize: clear screen via Ink instance and force Static remount
     const { stdout } = useStdout()
     const [resizeKey, setResizeKey] = useState(0)
     useEffect(() => {
@@ -75,7 +75,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         [themeId, applyTheme],
     )
 
-    // ref 让 done 回调能读到最新的 streaming content
+    // Ref to access latest streaming content in 'done' callback
     const streamingRef = useRef('')
     useEffect(() => {
         streamingRef.current = streaming.content

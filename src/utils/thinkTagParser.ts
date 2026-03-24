@@ -1,6 +1,7 @@
 /**
- * 解析 `<think>...</think>` 标签的流式状态机。
- * 用于 MiniMax、DeepSeek、Qwen 等通过 OpenAI 兼容接口输出思考内容的模型。
+ * Streaming state machine for parsing thinking tags.
+ * Used for MiniMax, DeepSeek, Qwen and other models that output thinking
+ * content through OpenAI-compatible APIs.
  */
 
 export type ThinkParseEvent =
@@ -22,7 +23,7 @@ export function createThinkTagParser(): ThinkTagParser {
     let inThink = false
     let buffer = ""
 
-    /** 检查 buffer 末尾是否可能是 target 的不完整前缀 */
+    /** Check if buffer ends with a partial prefix of target */
     function findPossiblePrefix(text: string, target: string): number {
         for (let len = Math.min(target.length - 1, text.length); len >= 1; len--) {
             if (text.endsWith(target.slice(0, len))) {
@@ -33,9 +34,9 @@ export function createThinkTagParser(): ThinkTagParser {
     }
 
     /**
-     * 在 buffer 中搜索 tag，将 tag 之前的内容以 emitType 发射出去。
-     * 返回 "found"（标签已消费）、"continue"（部分内容已发射，继续循环）
-     * 或 "wait"（数据不足，需要更多输入）。
+     * Search for tag in buffer and emit content before it.
+     * Returns "found" (tag consumed), "continue" (partial content emitted), or
+     * "wait" (insufficient data).
      */
     function consumeUntilTag(
         tag: string,
@@ -51,7 +52,7 @@ export function createThinkTagParser(): ThinkTagParser {
             return "found"
         }
 
-        // 标签未找到，检查 buffer 尾部是否是标签的不完整前缀
+        // Tag not found, check if buffer ends with partial tag prefix
         const prefixPos = findPossiblePrefix(buffer, tag)
         if (prefixPos > 0) {
             events.push({ type: emitType, delta: buffer.slice(0, prefixPos) })
@@ -59,7 +60,7 @@ export function createThinkTagParser(): ThinkTagParser {
             return "continue"
         }
         if (prefixPos === -1 && buffer.length > tag.length) {
-            // 保留末尾 tag.length-1 个字符以应对跨 chunk 的标签
+            // Keep last (tag.length-1) chars to handle tags spanning chunks
             const safeLen = buffer.length - tag.length + 1
             events.push({ type: emitType, delta: buffer.slice(0, safeLen) })
             buffer = buffer.slice(safeLen)
@@ -110,8 +111,13 @@ export function createThinkTagParser(): ThinkTagParser {
 
     return {
         feed,
-        reset() { inThink = false; buffer = "" },
-        isInThink() { return inThink },
+        reset(): void {
+            inThink = false
+            buffer = ""
+        },
+        isInThink(): boolean {
+            return inThink
+        },
         flush,
     }
 }
