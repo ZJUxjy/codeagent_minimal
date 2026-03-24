@@ -64,14 +64,12 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ code, lang, colors }) => {
                 {label}
             </Text>
             <Box
-                flexDirection="row"
-                flexWrap="wrap"
                 borderStyle="round"
                 borderColor={colors.border.default}
                 paddingX={1}
                 marginTop={0}
             >
-                {body}
+                <Text>{body}</Text>
             </Box>
             {showFoldHint ? (
                 <Box marginTop={0} paddingX={0}>

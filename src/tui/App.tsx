@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { Box, Text, useApp } from 'ink'
+import { Box, Text, useApp, useStdout } from 'ink'
 import { ThemeProvider, useTheme } from './themes/ThemeContext.js'
 import { Header } from './components/Header.js'
 import { MessageList } from './components/MessageList.js'
@@ -39,6 +39,18 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
     const [streamingContent, setStreamingContent] = useState('')
     const [thinkingContent, setThinkingContent] = useState('')
     const [isThinkingStreaming, setIsThinkingStreaming] = useState(false)
+
+    // 终端 resize 处理：清屏 + 强制 Static 重新挂载
+    const { stdout } = useStdout()
+    const [resizeKey, setResizeKey] = useState(0)
+    useEffect(() => {
+        const onResize = () => {
+            process.stdout.write('\x1b[2J\x1b[H')
+            setResizeKey(k => k + 1)
+        }
+        stdout.on('resize', onResize)
+        return () => { stdout.off('resize', onResize) }
+    }, [stdout])
 
     const [themeId, setThemeId] = useState<ThemeId>(() =>
         resolveThemeId(clientOptions.theme ?? process.env['LOP_THEME']),
@@ -247,6 +259,7 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
                         provider={clientOptions.provider ?? 'unknown'}
                     />
                     <MessageList
+                        key={resizeKey}
                         messages={messages}
                         streamingContent={streamingContent}
                         thinkingContent={thinkingContent}

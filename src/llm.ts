@@ -3,6 +3,7 @@ import { openai, createOpenAI } from "@ai-sdk/openai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { google } from "@ai-sdk/google"
 import type { CoreMessage, Tool } from "ai"
+import { createThinkTagParser } from "./utils/thinkTagParser.js"
 
 // ============ 类型定义 ============
 
@@ -128,9 +129,13 @@ export class LLMClient {
 
             this.log(`Stream created, starting iteration...`)
 
+            // 判断是否需要解析 <think 标签（OpenAI 兼容接口的模型可能使用此格式）
+            const needsThinkTagParsing = ["openai", "openrouter", "minimax"].includes(this.config.provider)
+            const thinkParser = needsThinkTagParsing ? createThinkTagParser() : null
+
             // 遍历流式输出
             try {
-                // 用于追踪 reasoning 状态
+                // 用于追踪 reasoning 状态（来自 AI SDK 原生 reasoning chunk）
                 let wasReasoning = false
 
                 for await (const chunk of result.fullStream) {
@@ -142,8 +147,19 @@ export class LLMClient {
                             yield { type: "reasoning_end" }
                             wasReasoning = false
                         }
+
                         // 文本增量
-                        yield { type: "content", delta: chunk.textDelta }
+                        const text = chunk.textDelta
+
+                        // 如果需要解析 <think 标签
+                        if (thinkParser) {
+                            const events = thinkParser.feed(text)
+                            for (const event of events) {
+                                yield event
+                            }
+                        } else {
+                            yield { type: "content", delta: text }
+                        }
                     } else if (chunk.type === "reasoning") {
                         // 思考内容增量 (使用类型断言，AI SDK 类型可能滞后)
                         wasReasoning = true
@@ -170,6 +186,10 @@ export class LLMClient {
                         if (wasReasoning) {
                             yield { type: "reasoning_end" }
                             wasReasoning = false
+                        }
+                        // 如果 think parser 还在思考标签内，也发送结束信号
+                        if (thinkParser?.isInThink()) {
+                            yield { type: "reasoning_end" }
                         }
                     }
                 }
