@@ -20,6 +20,8 @@ export interface ClientOptions {
 
 export type ClientEvent =
   | { type: "content"; delta: string }
+  | { type: "reasoning"; delta: string }
+  | { type: "reasoning_end" }
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; id: string; content: string; isError?: boolean }
   | { type: "done"; finishReason: string }
@@ -102,6 +104,12 @@ export class Client {
     switch (method) {
       case "content":
         this.eventHandler({ type: "content", delta: p.delta })
+        break
+      case "reasoning":
+        this.eventHandler({ type: "reasoning", delta: p.delta })
+        break
+      case "reasoning_end":
+        this.eventHandler({ type: "reasoning_end" })
         break
       case "tool_call":
         this.eventHandler({ type: "tool_call", id: p.id, name: p.name, args: p.args })
