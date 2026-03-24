@@ -1,4 +1,4 @@
-export type MessageRole = "user" | "assistant" | "tool"
+export type MessageRole = "user" | "assistant" | "tool" | "thinking"
 
 export interface BaseMessage {
     id: string;
@@ -30,7 +30,13 @@ export interface ToolMessage extends BaseMessage {
     toolCall: ToolCall;
 }
 
-export type Message = UserMessage | AssistantMessage | ToolMessage;
+export interface ThinkingMessage extends BaseMessage {
+    role: "thinking";
+    content: string;
+    isStreaming?: boolean;
+}
+
+export type Message = UserMessage | AssistantMessage | ToolMessage | ThinkingMessage;
 
 export interface AppState {
     messages: Message[];
