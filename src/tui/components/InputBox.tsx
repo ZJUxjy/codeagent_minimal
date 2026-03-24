@@ -4,6 +4,7 @@ import TextInput from 'ink-text-input'
 import { CommandCompletion } from './CommandCompletion.js'
 import type { SlashCommand } from '../../commands/types.js'
 import { useTheme } from '../themes/ThemeContext.js'
+import { truncate } from '../../utils/truncate.js'
 
 interface InputBoxProps {
     onSubmit: (value: string) => void
@@ -25,15 +26,11 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
     // 焦点管理：0 = 主输入框, 1 = 测试输入框
     const [focusIndex, setFocusIndex] = useState(0)
 
-    // 测试输入框状态
     const [testValue, setTestValue] = useState('')
 
-    const truncateText = (text: string, isFocused: boolean, maxLen: number = 15) => {
-        if (isFocused) return text
-        if (text.length <= maxLen) return text
-        return text.slice(0, maxLen - 3) + '...'
+    const truncateForBlur = (text: string, isFocused: boolean, maxLen: number = 15) => {
+        return isFocused ? text : truncate(text, maxLen - 3)
     }
-    // 匹配的命令列表
     const matchedCommands = useMemo(() => {
         if (!value.startsWith('/')) return []
         const partial = value.slice(1).toLowerCase()
@@ -45,18 +42,15 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
         )
     }, [value, commands])
 
-    // 当输入变化时重置选中索引
     useEffect(() => {
         setSelectedIndex(0)
     }, [value, matchedCommands.length])
 
-    // 当前选中的命令（用于 Tab 补全）
     const selectedCommand = useMemo(() => {
         if (matchedCommands.length === 0) return null
         return matchedCommands[selectedIndex] ?? null
     }, [matchedCommands, selectedIndex])
 
-    // 是否显示补全列表
     const showCompletion = useMemo(() => {
         return value.startsWith('/') &&
             !value.includes(' ') &&
@@ -71,21 +65,17 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
             setInputKey(k => k + 1)
             return
         }
-        // Tab 键：有补全列表时补全，否则切换焦点
         if (key.tab) {
             if (focusIndex === 0 && selectedCommand) {
-                // 主输入框有补全时，执行补全
                 const newValue = `/${selectedCommand.name} `
                 setValue(newValue)
                 setInputKey(k => k + 1)
                 return
             }
-            // 没有补全或不在主输入框，切换焦点
             setFocusIndex(i => (i + 1) % 2)
             return
         }
 
-        // 补全列表导航
         if (showCompletion && matchedCommands.length > 0) {
             if (key.upArrow) {
                 setSelectedIndex(i => (i - 1 + matchedCommands.length) % matchedCommands.length)
@@ -95,7 +85,6 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
                 setSelectedIndex(i => (i + 1) % matchedCommands.length)
                 return
             }
-            // Esc 键关闭补全（通过清除输入或添加空格）
             if (key.escape) {
                 setValue(value + ' ')
                 setInputKey(k => k + 1)
@@ -103,7 +92,6 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
             }
         }
 
-        // 上下箭头浏览历史（仅在不显示补全列表时）
         if (!showCompletion) {
             if (key.upArrow) {
                 if (historyIndex < history.length - 1) {
@@ -127,7 +115,6 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
     const handleSubmit = (submitValue: string) => {
         if (!submitValue.trim()) return
 
-        // 有补全列表时回车补全而不是提交
         if (showCompletion && selectedCommand) {
             const newValue = `/${selectedCommand.name} `
             setValue(newValue)
@@ -144,9 +131,7 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
 
     return (
         <Box flexDirection="column" marginTop={0}>
-            {/* 并排的两个输入框 */}
             <Box flexDirection="row" gap={0}>
-                {/* 主输入框 */}
                 <Box borderStyle="round" borderColor={focusIndex === 0 ? colors.border.focused : colors.border.default} flexGrow={focusIndex === 0 ? 8 : 2} flexBasis={0} 
                 height={focusIndex===0?'auto':3} width={'auto'}>
                     <Text bold color={disabled ? colors.text.secondary : (focusIndex === 0 ? colors.border.focused : colors.text.secondary)}>
@@ -154,7 +139,7 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
                     </Text>
                     <TextInput
                         key={inputKey}
-                        value={truncateText(value,focusIndex===0,Math.max( Math.floor(terminalWidth * 0.2)-8,0))}
+                        value={truncateForBlur(value,focusIndex===0,Math.max( Math.floor(terminalWidth * 0.2)-8,0))}
                         onChange={setValue}
                         onSubmit={handleSubmit}
                         placeholder={disabled ? 'Waiting...' : 'Message or /help...'}
@@ -163,7 +148,6 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
                     />
                 </Box>
 
-                {/* 测试输入框 */}
                 <Box borderStyle="round" borderColor={focusIndex === 1 ? colors.status.success : colors.border.default} flexGrow={focusIndex === 1 ? 8 : 2} flexBasis={0}
                 height={focusIndex===1?'auto':3} width={'auto'}
                 >
@@ -171,7 +155,7 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
                         {'[TEST] '}
                     </Text>
                     <TextInput
-                        value={truncateText(testValue,focusIndex===1,Math.max( Math.floor(terminalWidth * 0.2)-8,0))}
+                        value={truncateForBlur(testValue,focusIndex===1,Math.max( Math.floor(terminalWidth * 0.2)-8,0))}
                         onChange={setTestValue}
                         onSubmit={(v) => {
                             if (v.trim()) {
@@ -185,7 +169,6 @@ export const InputBox = ({ onSubmit, onClear, disabled, commands = [] }: InputBo
                 </Box>
             </Box>
 
-            {/* 命令补全列表 */}
             {showCompletion && focusIndex === 0 && (
                 <CommandCompletion
                     commands={matchedCommands}

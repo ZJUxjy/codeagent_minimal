@@ -38,6 +38,13 @@ export interface ThinkingMessage extends BaseMessage {
 
 export type Message = UserMessage | AssistantMessage | ToolMessage | ThinkingMessage;
 
+/** 流式输出的瞬时状态（尚未提交到 messages 数组的内容） */
+export interface StreamingState {
+    content: string
+    thinkingContent: string
+    isThinkingStreaming: boolean
+}
+
 export interface AppState {
     messages: Message[];
     isLoading: boolean;

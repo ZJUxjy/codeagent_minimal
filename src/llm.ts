@@ -5,8 +5,6 @@ import { google } from "@ai-sdk/google"
 import type { CoreMessage, Tool } from "ai"
 import { createThinkTagParser } from "./utils/thinkTagParser.js"
 
-// ============ 类型定义 ============
-
 export type Provider = "openai" | "anthropic" | "openrouter" | "minimax" | "google"
 
 export interface LLMConfig {
@@ -62,7 +60,6 @@ export class LLMClient {
                 return openrouter(this.config.model)
 
             case "minimax":
-                // MiniMax 使用 OpenAI 兼容 API
                 const minimax = createOpenAI({
                     baseURL: this.config.baseURL ?? "https://api.minimaxi.com/v1",
                     apiKey: this.config.apiKey,
@@ -103,7 +100,6 @@ export class LLMClient {
                 messages,
                 tools: toolDefs,
                 maxSteps: 10,
-                // 启用 Anthropic extended thinking
                 ...(this.config.provider === "anthropic" && {
                     providerOptions: {
                         anthropic: {
@@ -114,7 +110,6 @@ export class LLMClient {
                         "anthropic-beta": "interleaved-thinking-2025-05-14",
                     },
                 }),
-                // 启用 Gemini thinking
                 ...(this.config.provider === "google" && {
                     providerOptions: {
                         google: {
@@ -129,37 +124,33 @@ export class LLMClient {
 
             this.log(`Stream created, starting iteration...`)
 
-            // 创建 think 标签解析器（用于处理 OpenAI 兼容接口的 <think> 格式）
-            // 与原生 reasoning chunk 处理共存，不冲突
             const thinkParser = createThinkTagParser()
 
-            // 遍历流式输出
             try {
-                // 用于追踪 reasoning 状态（来自 AI SDK 原生 reasoning chunk）
+                // tracks whether the previous chunk was a native reasoning chunk from AI SDK
                 let wasReasoning = false
 
                 for await (const chunk of result.fullStream) {
                     this.log(`Chunk type: ${chunk.type}`)
 
                     if (chunk.type === "text-delta") {
-                        // 如果之前在 reasoning，现在收到 text-delta，说明 reasoning 结束
                         if (wasReasoning) {
                             yield { type: "reasoning_end" }
                             wasReasoning = false
                         }
 
-                        // 文本增量 - 解析可能包含的 <think> 标签
                         const text = chunk.textDelta
                         const events = thinkParser.feed(text)
                         for (const event of events) {
                             yield event
                         }
                     } else if (chunk.type === "reasoning") {
-                        // 思考内容增量 (使用类型断言，AI SDK 类型可能滞后)
                         wasReasoning = true
-                        yield { type: "reasoning", delta: (chunk as unknown as { textDelta: string }).textDelta }
+                        const textDelta = (chunk as unknown as { textDelta?: string }).textDelta
+                        if (textDelta) {
+                            yield { type: "reasoning", delta: textDelta }
+                        }
                     } else if (chunk.type === "tool-call") {
-                        // 如果之前在 reasoning，现在收到 tool-call，说明 reasoning 结束
                         if (wasReasoning) {
                             yield { type: "reasoning_end" }
                             wasReasoning = false
@@ -171,17 +162,14 @@ export class LLMClient {
                             args: chunk.args as Record<string, unknown>,
                         }
                     } else if (chunk.type === "error") {
-                        // API 错误
                         this.log(`API Error:`, chunk.error)
                         yield { type: "done", finishReason: `error: ${chunk.error}` }
                         return
                     } else if (chunk.type === "step-finish" || chunk.type === "finish") {
-                        // 步骤/流结束时，如果还在 reasoning，发送结束信号
                         if (wasReasoning) {
                             yield { type: "reasoning_end" }
                             wasReasoning = false
                         }
-                        // 如果 think parser 还在思考标签内，也发送结束信号
                         if (thinkParser.isInThink()) {
                             yield { type: "reasoning_end" }
                         }
@@ -192,13 +180,10 @@ export class LLMClient {
                 throw streamError
             }
 
-            // 流结束，刷新 think parser 剩余内容
-            const flushEvents = thinkParser.flush()
-            for (const event of flushEvents) {
+            for (const event of thinkParser.flush()) {
                 yield event
             }
 
-            // 流结束，发送完成事件
             const finalResult = await result
             const finishReason = typeof finalResult.finishReason === 'string'
                 ? finalResult.finishReason

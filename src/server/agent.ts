@@ -55,48 +55,34 @@ export class Agent {
    * @yields AgentEvent 流式事件
    */
   async *run(userMessage: string): AsyncGenerator<AgentEvent> {
-    // 1. 添加用户消息到历史
     this.store.add({ role: "user", content: userMessage })
 
-    // 2. 获取当前消息历史
     const messages = this.store.getAll()
-
-    // 3. 获取工具定义
     const toolDefs = this.tools.getToolDefinitions()
-
-    // 4. 调用 LLM 流式
     const stream = this.llm.stream(messages, toolDefs)
 
     let assistantContent = ""
 
     for await (const event of stream) {
       if (event.type === "content") {
-        // 文本增量
         assistantContent += event.delta
         yield { type: "content", delta: event.delta }
 
       } else if (event.type === "reasoning") {
-        // 思考内容增量 - 直接转发
         yield { type: "reasoning", delta: event.delta }
 
       } else if (event.type === "reasoning_end") {
-        // 思考块结束
         yield { type: "reasoning_end" }
 
       } else if (event.type === "tool_call") {
-        // 工具调用
         yield { type: "tool_call", id: event.id, name: event.name, args: event.args }
-
-        // 执行工具
         const result = await this.executeTool(event)
         yield { type: "tool_result", id: event.id, content: result.content, isError: result.isError }
 
       } else if (event.type === "done") {
-        // 保存 assistant 消息
         if (assistantContent) {
           this.store.add({ role: "assistant", content: assistantContent })
         }
-
         yield { type: "done", finishReason: event.finishReason }
       }
     }
@@ -110,13 +96,12 @@ export class Agent {
       return { content: `Error: Unknown tool '${call.name}'`, isError: true }
     }
 
-    // Hook: 工具执行前（未来用于策略引擎）
     if (this.hooks.beforeToolExecute) {
       const decision = await this.hooks.beforeToolExecute(call, tool)
       if (decision === "deny") {
         return { content: `Error: Tool execution denied by policy`, isError: true }
       }
-      // TODO: 处理 "ask" 决策（需要与 client 交互）
+      // TODO: handle "ask" decision (requires client interaction)
     }
 
     const ctx: ToolContext = { cwd: this.cwd }

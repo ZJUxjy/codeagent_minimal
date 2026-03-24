@@ -2,21 +2,17 @@ import React from "react";
 import { Box, Text, Static } from "ink";
 import { MessageItem } from "./MessageItem.js";
 import { ThinkingMessage } from "./ThinkingMessage.js";
-import type { Message } from "../types.js";
+import type { Message, StreamingState } from "../types.js";
 import { useTheme } from "../themes/ThemeContext.js";
 
 interface MessageListProps {
     messages: Message[];
-    streamingContent: string;
-    thinkingContent?: string;
-    isThinkingStreaming?: boolean;
+    streaming: StreamingState;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
     messages,
-    streamingContent,
-    thinkingContent,
-    isThinkingStreaming,
+    streaming,
 }) => {
     const { colors } = useTheme();
     return (
@@ -30,20 +26,18 @@ export const MessageList: React.FC<MessageListProps> = ({
                     />
                 )}
             </Static>
-            {/* 思考内容（流式或完成） */}
-            {thinkingContent ? (
+            {streaming.thinkingContent ? (
                 <Box marginTop={1}>
                     <ThinkingMessage
-                        content={thinkingContent}
+                        content={streaming.thinkingContent}
                         colors={colors}
-                        isStreaming={isThinkingStreaming}
+                        isStreaming={streaming.isThinkingStreaming}
                     />
                 </Box>
             ) : null}
-            {/* 助手回复流式内容 */}
-            {streamingContent ? (
+            {streaming.content ? (
                 <Box marginTop={1}>
-                    <Text color={colors.text.secondary}>{streamingContent}</Text>
+                    <Text color={colors.text.secondary}>{streaming.content}</Text>
                 </Box>
             ) : null}
         </Box>

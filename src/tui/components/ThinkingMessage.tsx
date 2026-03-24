@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useMemo, useRef } from "react"
 import { Box, Text } from "ink"
 import type { SemanticColors } from "../themes/types.js"
+import { truncate } from "../../utils/truncate.js"
 
 interface ThinkingMessageProps {
     content: string
@@ -14,20 +15,27 @@ export const ThinkingMessage: React.FC<ThinkingMessageProps> = ({
     isStreaming = false,
 }) => {
     const [isCollapsed, setIsCollapsed] = useState(true)
+    const hasTimerStartedRef = useRef(false)
+    const contentRef = useRef(content)
 
-    // 流式输出时自动展开
+    contentRef.current = content
+
+    const lines = useMemo(() => content.split("\n"), [content])
+
     useEffect(() => {
         if (isStreaming) {
             setIsCollapsed(false)
+            hasTimerStartedRef.current = false
         }
     }, [isStreaming])
 
-    // 流式输出完成后自动折叠
     useEffect(() => {
-        if (!isStreaming && content.length > 0) {
-            // 延迟折叠，让用户有时间看到内容
+        if (!isStreaming && content.length > 0 && !hasTimerStartedRef.current) {
+            hasTimerStartedRef.current = true
             const timer = setTimeout(() => {
-                setIsCollapsed(true)
+                if (contentRef.current.length > 0) {
+                    setIsCollapsed(true)
+                }
             }, 500)
             return () => clearTimeout(timer)
         }
@@ -37,18 +45,14 @@ export const ThinkingMessage: React.FC<ThinkingMessageProps> = ({
     const statusText = isStreaming ? "Thinking..." : "Thought"
 
     if (isCollapsed) {
-        // 折叠状态：只显示摘要
-        const preview = content.length > 50 ? content.slice(0, 50) + "..." : content
+        const preview = truncate(content, 50)
         return (
-            <Box flexDirection="row">
-                <Text dimColor color={colors.text.secondary}>
-                    {prefix}[{statusText}] {preview}
-                </Text>
-            </Box>
+            <Text dimColor color={colors.text.secondary}>
+                {prefix}[{statusText}] {preview}
+            </Text>
         )
     }
 
-    // 展开状态：显示完整内容
     return (
         <Box
             flexDirection="column"
@@ -62,7 +66,7 @@ export const ThinkingMessage: React.FC<ThinkingMessageProps> = ({
                 {prefix}{statusText}:
             </Text>
             <Box flexDirection="column" marginLeft={1}>
-                {content.split("\n").map((line, i) => (
+                {lines.map((line, i) => (
                     <Text key={i} dimColor color={colors.text.secondary}>
                         {line}
                     </Text>

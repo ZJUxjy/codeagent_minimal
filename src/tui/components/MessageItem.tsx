@@ -8,6 +8,7 @@ import { CodeBlock } from "./markdown/CodeBlock.js"
 import { splitFencedCodeBlocks } from "./markdown/parseFencedCode.js"
 import { splitProseIntoBlocks } from "./markdown/splitProseBlocks.js"
 import { ThinkingMessage } from "./ThinkingMessage.js"
+import { truncate } from "../../utils/truncate.js"
 
 interface MessageItemProps {
     message: Message
@@ -79,9 +80,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 </Text>
                 {toolCall.result ? (
                     <Text dimColor>
-                        {toolCall.result.length > 200
-                            ? toolCall.result.slice(0, 200) + "..."
-                            : toolCall.result}
+                        {truncate(toolCall.result, 200)}
                     </Text>
                 ) : null}
             </Box>

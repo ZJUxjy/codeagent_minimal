@@ -7,7 +7,7 @@ import { InputBox } from './components/InputBox.js'
 import { LoadingIndicator } from './components/LoadingIndicator.js'
 import { useClient } from './hooks/useClient.js'
 import { useSlashCommandProcessor } from './hooks/useSlashCommandProcessor.js'
-import type { Message } from './types.js'
+import type { Message, StreamingState } from './types.js'
 import type { ClientOptions } from '../client/index.js'
 import type { LopConfig } from '../protocol/types.js'
 import type { ThemeId } from './themes/types.js'
@@ -19,6 +19,7 @@ import {
 
 interface AppProps {
     clientOptions: ClientOptions
+    clearScreen?: () => void
 }
 
 function InitErrorText({ message }: { message: string }) {
@@ -30,27 +31,29 @@ function InitErrorText({ message }: { message: string }) {
     )
 }
 
-export const App: React.FC<AppProps> = ({ clientOptions }) => {
+export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
     const { exit } = useApp()
 
-    // 状态
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoading, setIsLoading] = useState(false)
-    const [streamingContent, setStreamingContent] = useState('')
-    const [thinkingContent, setThinkingContent] = useState('')
-    const [isThinkingStreaming, setIsThinkingStreaming] = useState(false)
+    const [streaming, setStreaming] = useState<StreamingState>({
+        content: '',
+        thinkingContent: '',
+        isThinkingStreaming: false,
+    })
 
-    // 终端 resize 处理：清屏 + 强制 Static 重新挂载
+    // 终端 resize 处理：通过 Ink instance.clear() 重置内部状态 + 清屏 + 强制 Static 重新挂载
     const { stdout } = useStdout()
     const [resizeKey, setResizeKey] = useState(0)
     useEffect(() => {
+        if (!clearScreen) return
         const onResize = () => {
-            process.stdout.write('\x1b[2J\x1b[H')
+            clearScreen()
             setResizeKey(k => k + 1)
         }
         stdout.on('resize', onResize)
         return () => { stdout.off('resize', onResize) }
-    }, [stdout])
+    }, [stdout, clearScreen])
 
     const [themeId, setThemeId] = useState<ThemeId>(() =>
         resolveThemeId(clientOptions.theme ?? process.env['LOP_THEME']),
@@ -72,37 +75,37 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
         [themeId, applyTheme],
     )
 
-    // 用 ref 存储 streamingContent，让事件处理器能访问最新值
-    const streamingContentRef = useRef('')
+    // ref 让 done 回调能读到最新的 streaming content
+    const streamingRef = useRef('')
     useEffect(() => {
-        streamingContentRef.current = streamingContent
-    }, [streamingContent])
+        streamingRef.current = streaming.content
+    }, [streaming.content])
 
-    // 事件处理器
     const handleEvent = useCallback((event: any) => {
         switch (event.type) {
             case 'content':
-                setStreamingContent(prev => prev + event.delta)
+                setStreaming(prev => ({ ...prev, content: prev.content + event.delta }))
                 break
             case 'reasoning':
-                setIsThinkingStreaming(true)
-                setThinkingContent(prev => prev + event.delta)
+                setStreaming(prev => ({
+                    ...prev,
+                    thinkingContent: prev.thinkingContent + event.delta,
+                    isThinkingStreaming: true,
+                }))
                 break
             case 'reasoning_end':
-                // 思考结束，将累积的思考内容添加为消息
-                setThinkingContent(prev => {
-                    if (prev) {
+                setStreaming(prev => {
+                    if (prev.thinkingContent) {
                         setMessages(msgs => [...msgs, {
                             id: `thinking-${Date.now()}`,
                             role: 'thinking' as const,
-                            content: prev,
+                            content: prev.thinkingContent,
                             isStreaming: false,
                             timestamp: Date.now(),
                         } as Message])
                     }
-                    return ''
+                    return { ...prev, thinkingContent: '', isThinkingStreaming: false }
                 })
-                setIsThinkingStreaming(false)
                 break
             case 'tool_call':
                 setMessages(prev => [...prev, {
@@ -133,15 +136,15 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
                 }))
                 break
             case 'done':
-                if (streamingContentRef.current) {
+                if (streamingRef.current) {
                     setMessages(prev => [...prev, {
                         id: `assistant-${Date.now()}`,
                         role: 'assistant' as const,
-                        content: streamingContentRef.current,
+                        content: streamingRef.current,
                         timestamp: Date.now(),
                     }])
-                    setStreamingContent('')
                 }
+                setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
                 setIsLoading(false)
                 break
         }
@@ -152,7 +155,6 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
         onEvent: handleEvent,
     })
 
-    // UI 操作对象
     const uiOps = {
         addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => {
             setMessages(prev => [...prev, {
@@ -173,7 +175,6 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
         setLoading: (loading: boolean) => setIsLoading(loading),
     }
 
-    // 配置对象
     const config: LopConfig & { cwd: string } = {
         provider: clientOptions.provider as LopConfig['provider'],
         model: clientOptions.model,
@@ -183,7 +184,6 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
         cwd: clientOptions.cwd ?? process.cwd(),
     }
 
-    // Slash 命令处理器
     const { registry, processInput } = useSlashCommandProcessor({
         client,
         config,
@@ -192,7 +192,6 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
         theme: themeControl,
     })
 
-    // 处理用户输入
     const handleSubmit = useCallback(async (input: string) => {
         if (!input.trim()) return
 
@@ -200,16 +199,12 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
 
         switch (result.type) {
             case 'handled':
-                // 命令已处理
                 break
             case 'quit':
                 exit()
                 break
             case 'submit_prompt':
-                // 作为普通消息发送到 LLM
                 if (!client) return
-
-                // 添加用户消息
                 setMessages(prev => [...prev, {
                     id: `user-${Date.now()}`,
                     role: 'user' as const,
@@ -261,13 +256,11 @@ export const App: React.FC<AppProps> = ({ clientOptions }) => {
                     <MessageList
                         key={resizeKey}
                         messages={messages}
-                        streamingContent={streamingContent}
-                        thinkingContent={thinkingContent}
-                        isThinkingStreaming={isThinkingStreaming}
+                        streaming={streaming}
                     />
                     {isLoading && (
                         <LoadingIndicator
-                            text={isThinkingStreaming ? "Thinking..." : undefined}
+                            text={streaming.isThinkingStreaming ? "Thinking..." : undefined}
                         />
                     )}
                     <InputBox

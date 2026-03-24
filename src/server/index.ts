@@ -3,7 +3,6 @@ import * as readline from "readline"
 import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
 import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 
-// 全局状态
 let agent: Agent | null = null
 let currentCwd = process.cwd()
 let debugEnabled = process.env.LOP_DEBUG === "true"
@@ -37,7 +36,6 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
 
     switch (method) {
         case "initialize": {
-            // 创建 Agent 实例，从环境变量读取配置
             const config: AgentConfig = {
                 provider: (process.env.LOP_PROVIDER as AgentConfig["provider"]) ?? "openai",
                 model: process.env.LOP_MODEL ?? "gpt-4o",
@@ -47,7 +45,6 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 debug: debugEnabled,
             }
 
-            // 调试日志
             debugLog(`Config: provider=${config.provider}, model=${config.model}`)
             debugLog(`API Key: ${config.apiKey?.slice(0, 10)}...`)
             debugLog(`Base URL: ${config.baseURL}`)
@@ -84,7 +81,6 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             }
 
             try {
-                // 流式处理 Agent 事件
                 for await (const event of agent.run(message)) {
                     switch (event.type) {
                         case "content":
@@ -128,8 +124,6 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             sendError(requestId, -32601, `Method not found: ${method}`)
     }
 }
-
-// ============ 主循环 ============
 
 const rl = readline.createInterface({
     input: process.stdin,
