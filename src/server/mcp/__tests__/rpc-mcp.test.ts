@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { spawn, type ChildProcess } from "child_process"
 import * as readline from "readline"
 import { resolve } from "path"
+import { existsSync } from "fs"
 
 interface JsonRpcRequest {
     jsonrpc: "2.0"
@@ -30,10 +31,14 @@ describe("MCP RPC endpoints", () => {
     const notifications: JsonRpcNotification[] = []
 
     const additionServerPath = resolve(process.cwd(), "examples/mcp/addition-server.cjs")
+    const serverDistPath = resolve(process.cwd(), "dist/server/index.js")
+    const serverEntry = existsSync(serverDistPath)
+        ? { command: "node", args: [serverDistPath] }
+        : { command: "tsx", args: ["src/server/index.ts"] }
 
     beforeAll(async () => {
         // Start server with MCP config in env
-        serverProcess = spawn("node", ["dist/server/index.js"], {
+        serverProcess = spawn(serverEntry.command, serverEntry.args, {
             stdio: ["pipe", "pipe", "inherit"],
             env: {
                 ...process.env,
@@ -135,7 +140,7 @@ describe("MCP RPC endpoints", () => {
 
     it("mcp_list fails when not initialized", async () => {
         // Start a fresh server without initialization
-        const freshServer = spawn("node", ["dist/server/index.js"], {
+        const freshServer = spawn(serverEntry.command, serverEntry.args, {
             stdio: ["pipe", "pipe", "inherit"],
             env: { ...process.env, LOP_PROVIDER: "openai", LOP_MODEL: "gpt-4o" },
         })
@@ -181,7 +186,7 @@ describe("MCP RPC endpoints", () => {
 
     it("mcp_reload fails when not initialized", async () => {
         // Start a fresh server without initialization
-        const freshServer = spawn("node", ["dist/server/index.js"], {
+        const freshServer = spawn(serverEntry.command, serverEntry.args, {
             stdio: ["pipe", "pipe", "inherit"],
             env: { ...process.env, LOP_PROVIDER: "openai", LOP_MODEL: "gpt-4o" },
         })
