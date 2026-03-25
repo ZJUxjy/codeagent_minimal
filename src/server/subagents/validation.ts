@@ -1,5 +1,3 @@
-import type { SubagentConfig } from "./types.js"
-
 export function validateSubagentFields(data: {
     name: unknown
     description: unknown
@@ -22,13 +20,8 @@ export function validateSubagentFields(data: {
     }
 }
 
-export function normalizeNameCase(name: string): string {
-    return name.trim()
-}
-
 /** Case-insensitive equality */
 export function namesMatch(a: string, b: string): boolean {
     return a.trim().toLowerCase() === b.trim().toLowerCase()
 }
 
-export type SubagentFileFields = Pick<SubagentConfig, "name" | "description" | "tools" | "systemPrompt">
