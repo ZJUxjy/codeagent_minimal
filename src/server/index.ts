@@ -109,6 +109,12 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                         case "content":
                             sendNotification("content", { delta: event.delta })
                             break
+                        case "reasoning":
+                            sendNotification("reasoning", { delta: event.delta })
+                            break
+                        case "reasoning_end":
+                            sendNotification("reasoning_end", {})
+                            break
                         case "tool_call":
                             sendNotification("tool_call", {
                                 id: event.id,
@@ -119,7 +125,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                         case "tool_result":
                             sendNotification("tool_result", {
                                 id: event.id,
-                                result: event.content,
+                                content: event.content,
                                 isError: event.isError
                             })
                             break

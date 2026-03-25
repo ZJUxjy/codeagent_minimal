@@ -77,81 +77,98 @@ export class Agent {
   async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
     this.store.add({ role: "user", content: userMessage })
 
-    const messages = this.store.getAll()
     const toolDefs = this.tools.getToolDefinitions()
-    const stream = this.llm.stream(messages, toolDefs)
-
-    let assistantContent = ""
-    // Track tool calls this turn for storing with assistant message
-    const toolCallsThisTurn: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = []
     const store = this.store
 
-    function checkAborted(): boolean {
-      if (signal?.aborted) {
-        // Store partial assistant message if aborted
-        if (assistantContent || toolCallsThisTurn.length > 0) {
-          store.add({
-            role: "assistant",
-            content: assistantContent,
-            toolInvocations: toolCallsThisTurn.length > 0 ? toolCallsThisTurn : undefined,
-          } as CoreMessage)
-        }
-        return true
-      }
-      return false
+    function isAborted(): boolean {
+      return Boolean(signal?.aborted)
     }
 
-    for await (const event of stream) {
-      if (checkAborted()) {
+    const persistAssistantStep = (
+      assistantContent: string,
+      toolCalls: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }>,
+    ): void => {
+      if (assistantContent || toolCalls.length > 0) {
+        store.add({
+          role: "assistant",
+          content: assistantContent,
+          toolInvocations: toolCalls.length > 0 ? toolCalls : undefined,
+        } as CoreMessage)
+      }
+    }
+
+    const maxTurns = 10
+    for (let turn = 0; turn < maxTurns; turn++) {
+      if (isAborted()) {
         yield { type: "done", finishReason: "interrupted" }
         return
       }
 
-      if (event.type === "content") {
-        assistantContent += event.delta
-        yield { type: "content", delta: event.delta }
+      const stream = this.llm.stream(this.store.getAll(), toolDefs)
+      let assistantContent = ""
+      const toolCallsThisTurn: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = []
+      let hadToolCall = false
+      let finishReason = "stop"
 
-      } else if (event.type === "reasoning") {
-        yield { type: "reasoning", delta: event.delta }
-
-      } else if (event.type === "reasoning_end") {
-        yield { type: "reasoning_end" }
-
-      } else if (event.type === "tool_call") {
-        if (checkAborted()) {
+      for await (const event of stream) {
+        if (isAborted()) {
+          persistAssistantStep(assistantContent, toolCallsThisTurn)
           yield { type: "done", finishReason: "interrupted" }
           return
         }
-        // Track this tool call
-        toolCallsThisTurn.push({
-          toolCallId: event.id,
-          toolName: event.name,
-          args: event.args,
-        })
-        yield { type: "tool_call", id: event.id, name: event.name, args: event.args }
-        const result = await this.executeTool(event)
-        // Store tool result in message history
-        const toolContent: ToolContent = [
-          { type: "tool-result", toolCallId: event.id, toolName: event.name, result: result.content, isError: result.isError },
-        ]
-        this.store.add({
-          role: "tool",
-          content: toolContent,
-        } as CoreMessage)
-        yield { type: "tool_result", id: event.id, content: result.content, isError: result.isError }
 
-      } else if (event.type === "done") {
-        // Store assistant message with tool calls
-        if (assistantContent || toolCallsThisTurn.length > 0) {
+        if (event.type === "content") {
+          assistantContent += event.delta
+          yield { type: "content", delta: event.delta }
+
+        } else if (event.type === "reasoning") {
+          yield { type: "reasoning", delta: event.delta }
+
+        } else if (event.type === "reasoning_end") {
+          yield { type: "reasoning_end" }
+
+        } else if (event.type === "tool_call") {
+          if (isAborted()) {
+            persistAssistantStep(assistantContent, toolCallsThisTurn)
+            yield { type: "done", finishReason: "interrupted" }
+            return
+          }
+
+          hadToolCall = true
+          toolCallsThisTurn.push({
+            toolCallId: event.id,
+            toolName: event.name,
+            args: event.args,
+          })
+          yield { type: "tool_call", id: event.id, name: event.name, args: event.args }
+
+          const result = await this.executeTool(event)
+          const toolContent: ToolContent = [
+            { type: "tool-result", toolCallId: event.id, toolName: event.name, result: result.content, isError: result.isError },
+          ]
           this.store.add({
-            role: "assistant",
-            content: assistantContent,
-            toolInvocations: toolCallsThisTurn.length > 0 ? toolCallsThisTurn : undefined,
+            role: "tool",
+            content: toolContent,
           } as CoreMessage)
+          yield { type: "tool_result", id: event.id, content: result.content, isError: result.isError }
+
+        } else if (event.type === "done") {
+          finishReason = event.finishReason
         }
-        yield { type: "done", finishReason: event.finishReason }
       }
+
+      persistAssistantStep(assistantContent, toolCallsThisTurn)
+
+      // If this turn did not request a tool, or model/tool chain ended with an error, finish normally.
+      if (!hadToolCall || finishReason.startsWith("error")) {
+        yield { type: "done", finishReason }
+        return
+      }
+
+      // Continue to next turn so model can consume tool results and produce final answer.
     }
+
+    yield { type: "done", finishReason: "length" }
   }
 
   /** 执行单个工具 */
