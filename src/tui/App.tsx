@@ -7,7 +7,7 @@ import { InputBox } from './components/InputBox.js'
 import { LoadingIndicator } from './components/LoadingIndicator.js'
 import { useClient } from './hooks/useClient.js'
 import { useSlashCommandProcessor } from './hooks/useSlashCommandProcessor.js'
-import type { Message, StreamingState } from './types.js'
+import type { Message, StreamingState, ToolStats, PendingToolCall } from './types.js'
 import type { ClientOptions } from '../client/index.js'
 import type { LopConfig } from '../protocol/types.js'
 import type { ThemeId } from './themes/types.js'
@@ -36,6 +36,11 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
 
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoading, setIsLoading] = useState(false)
+
+    // 工具统计
+    const [toolStats, setToolStats] = useState<ToolStats>(new Map())
+    const pendingCallsRef = useRef<Map<string, PendingToolCall>>(new Map())
+
     const [streaming, setStreaming] = useState<StreamingState>({
         content: '',
         thinkingContent: '',
@@ -108,6 +113,12 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 })
                 break
             case 'tool_call':
+                // 记录开始时间
+                pendingCallsRef.current.set(event.id, {
+                    id: event.id,
+                    name: event.name,
+                    startTime: Date.now(),
+                })
                 setMessages(prev => [...prev, {
                     id: `tool-${Date.now()}`,
                     role: 'tool' as const,
@@ -121,6 +132,32 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 }])
                 break
             case 'tool_result':
+                // 计算耗时并更新统计
+                const pendingCall = pendingCallsRef.current.get(event.id)
+                if (pendingCall) {
+                    pendingCallsRef.current.delete(event.id)
+                    const elapsed = Date.now() - pendingCall.startTime
+
+                    setToolStats(prev => {
+                        const newStats = new Map(prev)
+                        const existing = newStats.get(pendingCall.name) ?? {
+                            name: pendingCall.name,
+                            calls: 0,
+                            success: 0,
+                            failed: 0,
+                            totalTime: 0,
+                        }
+                        newStats.set(pendingCall.name, {
+                            name: pendingCall.name,
+                            calls: existing.calls + 1,
+                            success: existing.success + (event.isError ? 0 : 1),
+                            failed: existing.failed + (event.isError ? 1 : 0),
+                            totalTime: existing.totalTime + elapsed,
+                        })
+                        return newStats
+                    })
+                }
+
                 setMessages(prev => prev.map(msg => {
                     if (msg.role === 'tool' && msg.toolCall.id === event.id) {
                         return {
@@ -173,6 +210,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         },
         clearMessages: () => setMessages([]),
         setLoading: (loading: boolean) => setIsLoading(loading),
+        getToolStats: () => toolStats,
     }
 
     const config: LopConfig & { cwd: string } = {

@@ -4,7 +4,7 @@ import { BuiltinCommandLoader } from '../../commands/loaders/BuiltinCommandLoade
 import { parseCommand, isCommand } from '../utils/commandParser.js'
 import type { Client } from '../../client/index.js'
 import type { LopConfig } from '../../protocol/types.js'
-import type { Message } from '../types.js'
+import type { Message, ToolStats } from '../types.js'
 import type {
     CommandContext,
     SlashCommandActionReturn,
@@ -30,6 +30,8 @@ export interface UseSlashCommandProcessorOptions {
         clearMessages: () => void
         /** 设置加载状态 */
         setLoading: (loading: boolean) => void
+        /** 获取工具使用统计 */
+        getToolStats: () => ToolStats
     }
 
     /** 退出应用 */
@@ -106,6 +108,7 @@ export function useSlashCommandProcessor(
             config,
             ui,
             getVisibleCommands: () => registry.getVisibleCommands(),
+            getToolStats: ui.getToolStats,
             quit,
             theme,
         }

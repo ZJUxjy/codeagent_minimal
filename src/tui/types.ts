@@ -25,6 +25,25 @@ export interface ToolCall {
     result?: string;
 }
 
+/** 单个工具的统计信息 */
+export interface ToolStatEntry {
+    name: string
+    calls: number
+    success: number
+    failed: number
+    totalTime: number  // 毫秒
+}
+
+/** 所有工具的统计 */
+export type ToolStats = Map<string, ToolStatEntry>
+
+/** 正在执行的工具调用（用于计时) */
+export interface PendingToolCall {
+    id: string
+    name: string
+    startTime: number
+}
+
 export interface ToolMessage extends BaseMessage {
     role: 'tool';
     toolCall: ToolCall;

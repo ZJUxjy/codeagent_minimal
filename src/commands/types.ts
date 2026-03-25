@@ -1,6 +1,6 @@
 import type { Client } from '../client/index.js'
 import type { LopConfig } from '../protocol/types.js'
-import type { Message } from '../tui/types.js'
+import type { Message, ToolStats } from '../tui/types.js'
 
 /** 命令类型 */
 export enum CommandKind {
@@ -29,6 +29,9 @@ export interface CommandContext {
 
     /** 获取所有可见命令（用于 help 命令） */
     getVisibleCommands: () => SlashCommand[]
+
+    /** 获取工具使用统计 */
+    getToolStats: () => ToolStats
 
     /** 退出应用 */
     quit: () => void

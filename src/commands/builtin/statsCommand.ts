@@ -59,12 +59,65 @@ export const statsCommand: SlashCommand = {
             description: 'Show tool usage statistics',
             kind: CommandKind.BUILT_IN,
             action: (context: CommandContext): SlashCommandActionReturn => {
-                // TODO: 实现工具使用统计
+                const stats = context.getToolStats()
+
+                if (stats.size === 0) {
+                    return {
+                        type: 'message',
+                        content: '📊 Tool Usage Statistics\n\nNo tool calls in this session.',
+                    }
+                }
+
+                // 计算总计
+                let totalCalls = 0
+                let totalSuccess = 0
+                let totalFailed = 0
+                let totalTime = 0
+
+                const entries: Array<{ name: string; calls: number; success: number; failed: number; avgTime: number }> = []
+
+                stats.forEach((entry) => {
+                    totalCalls += entry.calls
+                    totalSuccess += entry.success
+                    totalFailed += entry.failed
+                    totalTime += entry.totalTime
+
+                    entries.push({
+                        name: entry.name,
+                        calls: entry.calls,
+                        success: entry.success,
+                        failed: entry.failed,
+                        avgTime: Math.round(entry.totalTime / entry.calls),
+                    })
+                })
+
+                // 按调用次数排序
+                entries.sort((a, b) => b.calls - a.calls)
+
+                // 构建表格
+                const lines = [
+                    '📊 Tool Usage Statistics',
+                    '',
+                    'Tool          Calls  Success  Failed  Avg Time',
+                    '─'.repeat(44),
+                ]
+
+                for (const entry of entries) {
+                    lines.push(
+                        `${entry.name.padEnd(12)} ${String(entry.calls).padStart(5)}  ${String(entry.success).padStart(7)}  ${String(entry.failed).padStart(6)}  ${String(entry.avgTime).padStart(8)}ms`
+                    )
+                }
+
+                lines.push('─'.repeat(44))
+                lines.push(
+                    `${'Total'.padEnd(12)} ${String(totalCalls).padStart(5)}  ${String(totalSuccess).padStart(7)}  ${String(totalFailed).padStart(6)}  ${String(Math.round(totalTime / totalCalls)).padStart(8)}ms`
+                )
+
                 return {
                     type: 'message',
-                    content: 'Tool usage statistics will be available in a future version.',
+                    content: lines.join('\n'),
                 }
             },
         },
-    ],
+    ]
 }
