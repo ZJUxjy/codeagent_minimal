@@ -1,6 +1,5 @@
-import { appendFileSync, existsSync, readFileSync } from 'fs';
+import { appendFileSync, existsSync, readFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { mkdirSync } from 'fs';
 
 export function writeLineSync<T>(filePath: string, record: T): void {
   const dir = dirname(filePath);
@@ -18,6 +17,13 @@ export function readLinesSync<T>(filePath: string): T[] {
   const content = readFileSync(filePath, 'utf-8');
   return content
     .split('\n')
-    .filter(line => line.trim().length > 0)
-    .map(line => JSON.parse(line) as T);
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => line.trim().length > 0)
+    .map(({ line, index }) => {
+      try {
+        return JSON.parse(line) as T;
+      } catch (error) {
+        throw new Error(`Invalid JSON at line ${index + 1} in ${filePath}: ${line.slice(0, 100)}`);
+      }
+    });
 }
