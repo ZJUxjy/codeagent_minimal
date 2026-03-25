@@ -4,7 +4,7 @@ import { existsSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import type { MessageStore } from '../store.js';
 import { readLinesSync, writeLineSync } from '../utils/jsonl.js';
-import { generateSessionId, getSessionDir, getSessionFilePath, listSessionIds } from '../utils/storagePath.js';
+import { generateSessionId, getSessionDir, listSessionIds } from '../utils/storagePath.js';
 import type { SessionInfo, SessionRecord } from './types.js';
 
 export class FileStore implements MessageStore {
@@ -80,20 +80,17 @@ export class FileStore implements MessageStore {
   /** 列出指定目录的所有会话，按最后修改时间倒序 */
   static listSessions(cwd: string, sessionDir?: string): SessionInfo[] {
     const dir = sessionDir ?? getSessionDir(cwd);
-    return listSessionIds(dir)
-      .map(id => {
-        const filePath = join(dir, `${id}.jsonl`);
-        if (!existsSync(filePath)) return null;
-        const stats = statSync(filePath);
-        const records = readLinesSync<SessionRecord>(filePath);
-        const firstUser = records.find(r => r.type === 'user');
-        const preview = firstUser
-          ? String(firstUser.message.content).slice(0, 60)
-          : undefined;
-        return { sessionId: id, mtime: stats.mtime, messageCount: records.length, preview } satisfies SessionInfo;
-      })
-      .filter((s): s is SessionInfo => s !== null)
-      .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+    const results: SessionInfo[] = [];
+    for (const id of listSessionIds(dir)) {
+      const filePath = join(dir, `${id}.jsonl`);
+      if (!existsSync(filePath)) continue;
+      const stats = statSync(filePath);
+      const records = readLinesSync<SessionRecord>(filePath);
+      const firstUser = records.find(r => r.type === 'user');
+      const preview = firstUser ? String(firstUser.message.content).slice(0, 60) : undefined;
+      results.push({ sessionId: id, mtime: stats.mtime, messageCount: records.length, preview });
+    }
+    return results.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
   }
 
   /** 加载已有会话（从默认路径） */

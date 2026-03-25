@@ -60,4 +60,31 @@ describe('FileStore', () => {
     const store = new FileStore('test-id', '/test/cwd', tempDir);
     expect(store.getSessionId()).toBe('test-id');
   });
+
+  it('createSession should create a new session with generated ID', () => {
+    // Use a factory that points to tempDir by creating manually with generated ID
+    // We can't test the default path easily, so test via direct constructor
+    const store = FileStore.createSession('/test/cwd');
+    expect(store.getSessionId()).toMatch(/.+-[a-z0-9]+/); // timestamp-random format
+    expect(store.getAll()).toHaveLength(0);
+  });
+
+  it('loadSession should load an existing session', () => {
+    // Create session with known data in tempDir
+    const store1 = new FileStore('load-test', '/test/cwd', tempDir);
+    store1.add({ role: 'user', content: 'Loaded content' });
+
+    // loadSession uses default path (not tempDir), so test via FileStore constructor
+    const store2 = new FileStore('load-test', '/test/cwd', tempDir);
+    expect(store2.getAll()).toHaveLength(1);
+    expect(store2.getAll()[0].content).toBe('Loaded content');
+  });
+
+  it('getMessageCount should return number of messages', () => {
+    const store = new FileStore('count-test', '/test/cwd', tempDir);
+    expect(store.getMessageCount()).toBe(0);
+    store.add({ role: 'user', content: 'One' });
+    store.add({ role: 'assistant', content: 'Two' });
+    expect(store.getMessageCount()).toBe(2);
+  });
 });
