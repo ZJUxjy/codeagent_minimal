@@ -12,6 +12,8 @@ import type { McpServerConfig } from "../../protocol/types.js"
 
 export interface ToolRegistryOptions {
     mcpServers?: Record<string, McpServerConfig>
+    /** When true, do not register core tools (used when copying a filtered tool set). */
+    skipDefaultTools?: boolean
 }
 
 export class ToolRegistry {
@@ -19,13 +21,15 @@ export class ToolRegistry {
     private mcpManager?: McpClientManager
 
     constructor(options: ToolRegistryOptions = {}) {
-        this.register(readTool)
-        this.register(writeTool)
-        this.register(editTool)
-        this.register(bashTool)
-        this.register(globTool)
-        this.register(grepTool)
-        this.register(listDirectoryTool)
+        if (!options.skipDefaultTools) {
+            this.register(readTool)
+            this.register(writeTool)
+            this.register(editTool)
+            this.register(bashTool)
+            this.register(globTool)
+            this.register(grepTool)
+            this.register(listDirectoryTool)
+        }
 
         if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
             this.mcpManager = new McpClientManager(options.mcpServers)

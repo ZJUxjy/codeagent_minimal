@@ -9,5 +9,7 @@ export interface Tool<T extends z.ZodType = z.ZodType> {
 
 export interface ToolContext {
     cwd: string
+    /** Present during agent.run — propagate to long-running tools (e.g. subagent). */
+    signal?: AbortSignal
 }
 

@@ -30,6 +30,18 @@ function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
     return config
 }
 
+function buildServerAgentConfig(cwd: string): AgentConfig {
+    return {
+        provider: (process.env.LOP_PROVIDER as AgentConfig["provider"]) ?? "openai",
+        model: process.env.LOP_MODEL ?? "gpt-4o",
+        apiKey: process.env.LOP_API_KEY,
+        baseURL: process.env.LOP_BASE_URL,
+        cwd,
+        debug: process.env.LOP_DEBUG === "true",
+        mcpConfig: getMcpConfigFromEnv(),
+    }
+}
+
 function sendNotification(method: string, params: unknown): void {
     console.log(JSON.stringify({ jsonrpc: "2.0", method, params }))
 }
@@ -48,15 +60,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
 
     switch (method) {
         case "initialize": {
-            const config: AgentConfig = {
-                provider: (process.env.LOP_PROVIDER as AgentConfig["provider"]) ?? "openai",
-                model: process.env.LOP_MODEL ?? "gpt-4o",
-                apiKey: process.env.LOP_API_KEY,
-                baseURL: process.env.LOP_BASE_URL,
-                cwd: currentCwd,
-                debug: process.env.LOP_DEBUG === "true",
-                mcpConfig: getMcpConfigFromEnv(),
-            }
+            const config = buildServerAgentConfig(currentCwd)
 
             debugLog("server", `Config: provider=${config.provider}, model=${config.model}`)
             debugLog("server", `API Key: ${config.apiKey?.slice(0, 10)}...`)
@@ -92,12 +96,13 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             // 如果 cwd 变化，重新创建 Agent
             if (cwd && cwd !== currentCwd) {
                 currentCwd = cwd
-                const config: AgentConfig = {
-                    provider: (process.env.LOP_PROVIDER as AgentConfig["provider"]) ?? "openai",
-                    model: process.env.LOP_MODEL ?? "gpt-4o",
-                    cwd: currentCwd,
-                }
+                const config = buildServerAgentConfig(currentCwd)
                 agent = new Agent(config)
+                if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
+                    agent.discoverMcpTools().catch((err) => {
+                        debugLog("server", "MCP discovery failed:", err)
+                    })
+                }
             }
 
             try {
