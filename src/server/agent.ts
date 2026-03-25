@@ -97,6 +97,26 @@ export class Agent {
       }
     }
 
+    const persistToolResults = (
+      toolMessages: Array<{ toolCallId: string; toolName: string; content: string; isError?: boolean }>,
+    ): void => {
+      for (const toolMessage of toolMessages) {
+        const toolContent: ToolContent = [
+          {
+            type: "tool-result",
+            toolCallId: toolMessage.toolCallId,
+            toolName: toolMessage.toolName,
+            result: toolMessage.content,
+            isError: toolMessage.isError,
+          },
+        ]
+        store.add({
+          role: "tool",
+          content: toolContent,
+        } as CoreMessage)
+      }
+    }
+
     const maxTurns = 10
     for (let turn = 0; turn < maxTurns; turn++) {
       if (isAborted()) {
@@ -107,12 +127,14 @@ export class Agent {
       const stream = this.llm.stream(this.store.getAll(), toolDefs)
       let assistantContent = ""
       const toolCallsThisTurn: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = []
+      const toolResultsThisTurn: Array<{ toolCallId: string; toolName: string; content: string; isError?: boolean }> = []
       let hadToolCall = false
       let finishReason = "stop"
 
       for await (const event of stream) {
         if (isAborted()) {
           persistAssistantStep(assistantContent, toolCallsThisTurn)
+          persistToolResults(toolResultsThisTurn)
           yield { type: "done", finishReason: "interrupted" }
           return
         }
@@ -130,6 +152,7 @@ export class Agent {
         } else if (event.type === "tool_call") {
           if (isAborted()) {
             persistAssistantStep(assistantContent, toolCallsThisTurn)
+            persistToolResults(toolResultsThisTurn)
             yield { type: "done", finishReason: "interrupted" }
             return
           }
@@ -143,13 +166,12 @@ export class Agent {
           yield { type: "tool_call", id: event.id, name: event.name, args: event.args }
 
           const result = await this.executeTool(event)
-          const toolContent: ToolContent = [
-            { type: "tool-result", toolCallId: event.id, toolName: event.name, result: result.content, isError: result.isError },
-          ]
-          this.store.add({
-            role: "tool",
-            content: toolContent,
-          } as CoreMessage)
+          toolResultsThisTurn.push({
+            toolCallId: event.id,
+            toolName: event.name,
+            content: result.content,
+            isError: result.isError,
+          })
           yield { type: "tool_result", id: event.id, content: result.content, isError: result.isError }
 
         } else if (event.type === "done") {
@@ -158,6 +180,7 @@ export class Agent {
       }
 
       persistAssistantStep(assistantContent, toolCallsThisTurn)
+      persistToolResults(toolResultsThisTurn)
 
       // If this turn did not request a tool, or model/tool chain ended with an error, finish normally.
       if (!hadToolCall || finishReason.startsWith("error")) {
