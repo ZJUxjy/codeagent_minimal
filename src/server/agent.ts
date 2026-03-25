@@ -238,4 +238,9 @@ export class Agent {
     clearHistory(): void {
         this.store.clear()
     }
+
+    /** 替换底层 store（用于 /load 命令加载历史会话） */
+    replaceStore(newStore: MessageStore): void {
+        this.store = newStore
+    }
 }

@@ -124,6 +124,10 @@ export interface LopConfig {
     // MCP 配置
     mcpServers?: Record<string, McpServerConfig>
     mcp?: { allowed?: string[]; excluded?: string[] }
+    // 新增：会话持久化开关
+    persistence?: {
+        enabled?: boolean
+    }
 }
 
 // MCP Server 配置
