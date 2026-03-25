@@ -1,5 +1,5 @@
 // src/server/agent.ts
-import type { CoreMessage, ToolContent } from "ai"
+import type { CoreMessage, ToolContent, TextPart, ToolCallPart } from "ai"
 import { LLMClient } from "../llm.js"
 import { ToolRegistry, type ToolRegistryOptions } from "./tools/index.js"
 import { InMemoryStore, type MessageStore } from "./store.js"
@@ -120,12 +120,24 @@ export class Agent {
             assistantContent: string,
             toolCalls: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }>,
         ): void => {
-            if (assistantContent || toolCalls.length > 0) {
-                store.add({
-                    role: "assistant",
-                    content: assistantContent,
-                    toolInvocations: toolCalls,
-                } as CoreMessage)
+            if (!assistantContent && toolCalls.length === 0) return
+
+            if (toolCalls.length === 0) {
+                store.add({ role: "assistant", content: assistantContent } as CoreMessage)
+            } else {
+                const parts: Array<TextPart | ToolCallPart> = []
+                if (assistantContent) {
+                    parts.push({ type: "text", text: assistantContent })
+                }
+                for (const call of toolCalls) {
+                    parts.push({
+                        type: "tool-call",
+                        toolCallId: call.toolCallId,
+                        toolName: call.toolName,
+                        args: call.args,
+                    })
+                }
+                store.add({ role: "assistant", content: parts } as CoreMessage)
             }
         }
 
@@ -139,9 +151,10 @@ export class Agent {
                 const stream = this.llm.stream(store.getAll(), toolDefs)
                 let assistantContent = ""
                 const toolCallsThisTurn: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = []
-                let hadToolCall = false
+                const pendingToolEvents: Array<{ id: string; name: string; args: Record<string, unknown> }> = []
                 let finishReason = "stop"
 
+                // Phase 1: consume the stream, collect content + tool calls
                 for await (const event of stream) {
                     if (isAborted()) {
                         persistAssistantStep(assistantContent, toolCallsThisTurn)
@@ -160,38 +173,41 @@ export class Agent {
                         yield { type: "reasoning_end" }
 
                     } else if (event.type === "tool_call") {
-                        if (isAborted()) {
-                            persistAssistantStep(assistantContent, toolCallsThisTurn)
-                            yield { type: "done", finishReason: "interrupted" }
-                            return
-                        }
-
-                        hadToolCall = true
                         toolCallsThisTurn.push({
                             toolCallId: event.id,
                             toolName: event.name,
                             args: event.args,
                         })
+                        pendingToolEvents.push({ id: event.id, name: event.name, args: event.args })
                         yield { type: "tool_call", id: event.id, name: event.name, args: event.args }
-
-                        const result = await this.executeTool(event)
-                        const toolContent: ToolContent = [
-                            { type: "tool-result", toolCallId: event.id, toolName: event.name, result: result.content, isError: result.isError },
-                        ]
-                        this.store.add({
-                            role: "tool",
-                            content: toolContent,
-                        } as CoreMessage)
-                        yield { type: "tool_result", id: event.id, content: result.content, isError: result.isError }
 
                     } else if (event.type === "done") {
                         finishReason = event.finishReason
                     }
                 }
 
+                // Phase 2: persist assistant BEFORE tool results (correct message order)
                 persistAssistantStep(assistantContent, toolCallsThisTurn)
 
-                if (!hadToolCall || finishReason.startsWith("error")) {
+                // Phase 3: execute tools and add results after the assistant message
+                for (const call of pendingToolEvents) {
+                    if (isAborted()) {
+                        yield { type: "done", finishReason: "interrupted" }
+                        return
+                    }
+
+                    const result = await this.executeTool(call)
+                    const toolContent: ToolContent = [
+                        { type: "tool-result", toolCallId: call.id, toolName: call.name, result: result.content, isError: result.isError },
+                    ]
+                    this.store.add({
+                        role: "tool",
+                        content: toolContent,
+                    } as CoreMessage)
+                    yield { type: "tool_result", id: call.id, content: result.content, isError: result.isError }
+                }
+
+                if (pendingToolEvents.length === 0 || finishReason.startsWith("error")) {
                     yield { type: "done", finishReason }
                     return
                 }
