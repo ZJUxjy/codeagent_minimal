@@ -179,6 +179,11 @@ export class Client {
     return this.sendRequest("mcp_reload")
   }
 
+  /** 加载历史会话（替换当前 Agent store） */
+  async loadSession(sessionId: string): Promise<{ sessionId: string; messageCount: number }> {
+    return this.sendRequest('load_session', { sessionId })
+  }
+
   /** 关闭客户端 */
   close(): void {
     this.server.kill()
