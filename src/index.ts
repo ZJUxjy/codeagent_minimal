@@ -1,6 +1,12 @@
 import { startTUI } from './tui/index.js';
 import { loadConfig } from './config.js';
 import type { ClientOptions, TuiThemeId } from './client/index.js';
+import { createLogger, Logger } from './utils/logger.js'
+
+const logger = createLogger()
+if (logger instanceof Logger) {
+  logger.info('main', `lop_minimal starting, session: ${process.env.LOP_SESSION_ID || 'default'}`)
+}
 
 async function main() {
   const fileConfig = loadConfig();

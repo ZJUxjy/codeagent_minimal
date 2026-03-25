@@ -10,7 +10,7 @@ import { useTheme } from '../themes/ThemeContext.js'
 import { escapeRegex } from '../../utils/regex.js'
 
 const LARGE_PASTE_CHAR_THRESHOLD = 1000;
-const LARGE_PASTE_LINE_THRESHOLD = 10;
+const LARGE_PASTE_LINE_THRESHOLD = 5;
 
 interface InputBoxProps {
     onSubmit: (value: string) => void

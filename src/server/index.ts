@@ -2,13 +2,11 @@
 import * as readline from "readline"
 import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
 import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
-import { debugLog, setDebug } from "../config.js"
+import { debugLog } from "../config.js"
 
 let agent: Agent | null = null
 let currentCwd = process.cwd()
 let currentAbortController: AbortController | null = null
-
-setDebug(process.env.LOP_DEBUG === "true")
 
 function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
     const config: AgentConfig["mcpConfig"] = {}
@@ -60,16 +58,16 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 mcpConfig: getMcpConfigFromEnv(),
             }
 
-            debugLog(`Config: provider=${config.provider}, model=${config.model}`)
-            debugLog(`API Key: ${config.apiKey?.slice(0, 10)}...`)
-            debugLog(`Base URL: ${config.baseURL}`)
+            debugLog("server", `Config: provider=${config.provider}, model=${config.model}`)
+            debugLog("server", `API Key: ${config.apiKey?.slice(0, 10)}...`)
+            debugLog("server", `Base URL: ${config.baseURL}`)
 
             agent = new Agent(config)
 
             // Trigger MCP discovery asynchronously (don't block initialization)
             if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
                 agent.discoverMcpTools().catch((err) => {
-                    debugLog("MCP discovery failed:", err)
+                    debugLog("server", "MCP discovery failed:", err)
                 })
             }
 

@@ -8,7 +8,6 @@ import type { ToolContext } from "./tools/types.js"
 import type { LopConfig, Provider } from "../protocol/types.js"
 import { evaluateToolPolicy } from "./security/policy.js"
 
-/** Agent 配置 */
 export interface AgentConfig {
   provider: Provider
   model: string
@@ -21,7 +20,6 @@ export interface AgentConfig {
   mcpConfig?: Pick<LopConfig, "mcpServers" | "mcp">
 }
 
-/** Agent 输出事件 */
 export type AgentEvent =
   | { type: "content"; delta: string }
   | { type: "reasoning"; delta: string }
@@ -30,7 +28,6 @@ export type AgentEvent =
   | { type: "tool_result"; id: string; content: string; isError?: boolean }
   | { type: "done"; finishReason: string }
 
-/** Agent 核心 */
 export class Agent {
   private llm: LLMClient
   private tools: ToolRegistry
@@ -55,25 +52,14 @@ export class Agent {
     this.cwd = config.cwd
   }
 
-  /**
-   * Discover MCP tools from configured servers
-   */
   async discoverMcpTools(): Promise<void> {
     await this.tools.discoverMcpTools()
   }
 
-  /**
-   * Get MCP manager for status/reload operations
-   */
   getMcpManager() {
     return this.tools.getMcpManager()
   }
 
-  /**
-   * 运行 Agent
-   * @param userMessage 用户输入
-   * @yields AgentEvent 流式事件
-   */
   async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
     this.store.add({ role: "user", content: userMessage })
 
@@ -92,7 +78,7 @@ export class Agent {
         store.add({
           role: "assistant",
           content: assistantContent,
-          toolInvocations: toolCalls.length > 0 ? toolCalls : undefined,
+          toolInvocations: toolCalls,
         } as CoreMessage)
       }
     }
@@ -171,7 +157,6 @@ export class Agent {
     yield { type: "done", finishReason: "length" }
   }
 
-  /** 执行单个工具 */
   private async executeTool(call: ToolCall): Promise<{ content: string; isError?: boolean }> {
     const tool = this.tools.get(call.name)
 
@@ -208,7 +193,6 @@ export class Agent {
     }
   }
 
-  /** 清空对话历史 */
   clearHistory(): void {
     this.store.clear()
   }

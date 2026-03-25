@@ -1,5 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { spawn, type ChildProcess } from "child_process"
+import { describe, it, expect } from "vitest"
 import { ToolRegistry } from "../../tools/index.js"
 import { McpClientManager } from "../clientManager.js"
 import type { McpServerConfig } from "../../../protocol/types.js"

@@ -3,6 +3,7 @@ import { homedir } from "os"
 import { join, dirname } from "path"
 import type { LopConfig } from "./protocol/types.js"
 import { parseMcpConfig } from "./server/mcp/config.js"
+import * as logger from "./utils/logger.js"
 
 const CONFIG_FILES = [
     "config.json",
@@ -86,17 +87,11 @@ export function mergeConfig(options: {
     }
 }
 
-/** 全局调试开关 */
-let _debugEnabled = false
-
-/** 设置调试开关 */
-export function setDebug(enabled: boolean): void {
-    _debugEnabled = enabled
-}
-
-/** 调试日志 */
+/** 调试日志 - 兼容旧接口 */
 export function debugLog(...args: unknown[]): void {
-    if (_debugEnabled) {
-        console.error("[Debug]", ...args)
-    }
+    const tag = String(args[0] ?? "config")
+    const message = args.slice(1).map(a =>
+        typeof a === "string" ? a : JSON.stringify(a)
+    ).join(" ")
+    logger.debug(tag, message)
 }
