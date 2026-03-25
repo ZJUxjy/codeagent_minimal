@@ -3,6 +3,9 @@ import * as readline from "readline"
 import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
 import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 import { debugLog } from "../config.js"
+import { FileStore } from "./stores/FileStore.js"
+import { generateSessionId } from "./utils/storagePath.js"
+import type { MessageStore } from "./store.js"
 
 let agent: Agent | null = null
 let currentCwd = process.cwd()
@@ -30,7 +33,7 @@ function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
     return config
 }
 
-function buildServerAgentConfig(cwd: string): AgentConfig {
+function buildServerAgentConfig(cwd: string, store?: MessageStore): AgentConfig {
     return {
         provider: (process.env.LOP_PROVIDER as AgentConfig["provider"]) ?? "openai",
         model: process.env.LOP_MODEL ?? "gpt-4o",
@@ -39,6 +42,7 @@ function buildServerAgentConfig(cwd: string): AgentConfig {
         cwd,
         debug: process.env.LOP_DEBUG === "true",
         mcpConfig: getMcpConfigFromEnv(),
+        ...(store ? { store } : {}),
     }
 }
 
@@ -60,7 +64,12 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
 
     switch (method) {
         case "initialize": {
-            const config = buildServerAgentConfig(currentCwd)
+            let store: MessageStore | undefined
+            if (process.env.LOP_PERSISTENCE === "true") {
+                store = FileStore.createSession(currentCwd)
+                debugLog("server", `Persistence enabled, session: ${(store as FileStore).getSessionId()}`)
+            }
+            const config = buildServerAgentConfig(currentCwd, store)
 
             debugLog("server", `Config: provider=${config.provider}, model=${config.model}`)
             debugLog("server", `API Key: ${config.apiKey?.slice(0, 10)}...`)
@@ -68,7 +77,6 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
 
             agent = new Agent(config)
 
-            // Trigger MCP discovery asynchronously (don't block initialization)
             if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
                 agent.discoverMcpTools().catch((err) => {
                     debugLog("server", "MCP discovery failed:", err)
@@ -76,10 +84,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             }
 
             sendResponse(requestId, {
-                serverInfo: {
-                    name: "lop_minimal_server",
-                    version: "0.1.0",
-                },
+                serverInfo: { name: "lop_minimal_server", version: "0.1.0" },
                 capabilities: {},
             })
             break
@@ -159,6 +164,26 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 agent.clearHistory()
             }
             sendResponse(requestId, {})
+            break
+        }
+
+        case "load_session": {
+            if (!agent) {
+                sendError(requestId, -32002, "Not initialized")
+                return
+            }
+            const { sessionId } = params as { sessionId: string }
+            if (!sessionId) {
+                sendError(requestId, -32602, "sessionId is required")
+                return
+            }
+            const loadedStore = FileStore.loadSession(sessionId, currentCwd)
+            if (loadedStore.getMessageCount() === 0) {
+                sendError(requestId, -32001, `Session not found or empty: ${sessionId}`)
+                return
+            }
+            agent.replaceStore(loadedStore)
+            sendResponse(requestId, { sessionId, messageCount: loadedStore.getMessageCount() })
             break
         }
 
