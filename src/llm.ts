@@ -1,6 +1,6 @@
 import { streamText } from "ai"
 import { openai, createOpenAI } from "@ai-sdk/openai"
-import { anthropic } from "@ai-sdk/anthropic"
+import { anthropic, createAnthropic } from "@ai-sdk/anthropic"
 import { google } from "@ai-sdk/google"
 import type { CoreMessage, Tool } from "ai"
 import { createThinkTagParser } from "./utils/thinkTagParser.js"
@@ -62,11 +62,18 @@ export class LLMClient {
                 return openrouter(this.config.model)
 
             case "minimax":
-                const minimax = createOpenAI({
-                    baseURL: this.config.baseURL ?? "https://api.minimaxi.com/v1",
+                // MiniMax 推荐使用 Anthropic 兼容 API，对工具调用支持更好
+                // OpenAI 兼容 API 存在 "Unsupported role: tool" 的问题
+                // Vercel AI SDK 会发送到 ${baseURL}/messages，所以需要包含 /v1 路径
+                // MiniMax 需要 Bearer token 认证，而不是默认的 x-api-key header
+                const minimaxAnthropic = createAnthropic({
+                    baseURL: this.config.baseURL ?? "https://api.minimaxi.com/anthropic/v1",
                     apiKey: this.config.apiKey,
+                    headers: {
+                        Authorization: `Bearer ${this.config.apiKey}`,
+                    },
                 })
-                return minimax(this.config.model)
+                return minimaxAnthropic(this.config.model)
 
             case "google":
                 return google(this.config.model)

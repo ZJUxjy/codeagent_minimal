@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "child_process"
 import * as readline from "readline"
 import type { JsonRpcRequest, JsonRpcNotification, LopConfig } from "../protocol/types.js"
 import { debugLog } from "../config.js"
+import { getGlobalLogger } from "../utils/logger.js"
 
 /** TUI 主题，与 `src/tui/themes` 中 ThemeId 一致 */
 export type TuiThemeId = "dark" | "light" | "ansi"
@@ -70,6 +71,7 @@ export class Client {
     })
 
     rl.on("line", (line) => {
+      getGlobalLogger().info('server', line)
       try {
         this.handleMessage(JSON.parse(line))
       } catch (error) {

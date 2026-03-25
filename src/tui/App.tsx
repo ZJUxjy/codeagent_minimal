@@ -16,6 +16,7 @@ import {
     resolveThemeId,
     tryParseThemeId,
 } from './themes/presets.js'
+import { getGlobalLogger } from '../utils/logger.js'
 
 interface AppProps {
     clientOptions: ClientOptions
@@ -173,6 +174,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 }))
                 break
             case 'done':
+                getGlobalLogger().info('done',`${streamingRef.current.slice(0,20)}`)
                 if (streamingRef.current) {
                     setMessages(prev => [...prev, {
                         id: `assistant-${Date.now()}`,
