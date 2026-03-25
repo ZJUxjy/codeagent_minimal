@@ -4,7 +4,6 @@ import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
 import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 import { FileStore } from "./stores/FileStore.js"
-import { generateSessionId } from "./utils/storagePath.js"
 import type { MessageStore } from "./store.js"
 
 let agent: Agent | null = null

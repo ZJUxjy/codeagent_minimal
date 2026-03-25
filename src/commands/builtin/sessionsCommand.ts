@@ -7,8 +7,8 @@ export const sessionsCommand: SlashCommand = {
   description: 'List all saved sessions for current project',
   kind: CommandKind.BUILT_IN,
 
-  action: (_context: CommandContext, _args: string): SlashCommandActionReturn => {
-    const cwd = process.cwd()
+  action: (context: CommandContext, _args: string): SlashCommandActionReturn => {
+    const cwd = context.config.cwd
     const sessions = FileStore.listSessions(cwd)
 
     if (sessions.length === 0) {
