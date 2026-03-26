@@ -78,7 +78,7 @@ function getModel() {
             const client = createAnthropic({
                 apiKey,
                 ...(baseURL
-                    ? { baseURL: normalizeAnthropicCompatibleBaseURL(baseURL, baseURL) }
+                    ? { baseURL: normalizeAnthropicCompatibleBaseURL(baseURL, "") }
                     : {}),
             })
             return client(MODEL)

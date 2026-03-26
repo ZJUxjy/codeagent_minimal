@@ -9,10 +9,7 @@ import type { Provider } from "./protocol/types.js"
 // Re-export Provider for backward compatibility
 export { type Provider } from "./protocol/types.js"
 
-/**
- * Anthropic 兼容客户端（createAnthropic）：SDK 请求 ${baseURL}/messages，基址需以 /v1 结尾；
- * 合并 scheme 之后路径里的重复 /（不破坏 https://）。
- */
+// createAnthropic appends /messages to the base URL, so it must end with /v1.
 export function normalizeAnthropicCompatibleBaseURL(baseURL: string | undefined, fallback: string): string {
     const use = (baseURL?.trim() || fallback).trim()
     let u = use.replace(/\/+$/, "")
@@ -54,6 +51,15 @@ export class LLMClient {
         }
     }
 
+    private makeAnthropicCompatModel(defaultBaseURL: string, extraHeaders?: Record<string, string>) {
+        const client = createAnthropic({
+            baseURL: normalizeAnthropicCompatibleBaseURL(this.config.baseURL, defaultBaseURL),
+            apiKey: this.config.apiKey,
+            ...(extraHeaders ? { headers: extraHeaders } : {}),
+        })
+        return client(this.config.model)
+    }
+
     private getModel() {
         switch (this.config.provider) {
             case "openai":
@@ -77,46 +83,19 @@ export class LLMClient {
                 return openrouter(this.config.model)
 
             case "minimax":
-                // MiniMax 推荐使用 Anthropic 兼容 API，对工具调用支持更好
-                // OpenAI 兼容 API 存在 "Unsupported role: tool" 的问题
-                // Vercel AI SDK 会发送到 ${baseURL}/messages，所以需要包含 /v1 路径
-                // MiniMax 需要 Bearer token 认证，而不是默认的 x-api-key header
-                const minimaxAnthropic = createAnthropic({
-                    baseURL: normalizeAnthropicCompatibleBaseURL(
-                        this.config.baseURL,
-                        "https://api.minimaxi.com/anthropic/v1",
-                    ),
-                    apiKey: this.config.apiKey,
-                    headers: {
-                        Authorization: `Bearer ${this.config.apiKey}`,
-                    },
+                // MiniMax uses Bearer token auth instead of x-api-key
+                return this.makeAnthropicCompatModel("https://api.minimaxi.com/anthropic/v1", {
+                    Authorization: `Bearer ${this.config.apiKey}`,
                 })
-                return minimaxAnthropic(this.config.model)
 
             case "google":
                 return google(this.config.model)
 
             case "kimi":
-                // Kimi 使用 Anthropic 兼容 API
-                const kimi = createAnthropic({
-                    baseURL: normalizeAnthropicCompatibleBaseURL(
-                        this.config.baseURL,
-                        "https://api.kimi.com/coding",
-                    ),
-                    apiKey: this.config.apiKey,
-                })
-                return kimi(this.config.model)
+                return this.makeAnthropicCompatModel("https://api.kimi.com/coding")
 
             case "glm":
-                // GLM (智谱) 使用 Anthropic 兼容 API
-                const glm = createAnthropic({
-                    baseURL: normalizeAnthropicCompatibleBaseURL(
-                        this.config.baseURL,
-                        "https://open.bigmodel.cn/api/anthropic",
-                    ),
-                    apiKey: this.config.apiKey,
-                })
-                return glm(this.config.model)
+                return this.makeAnthropicCompatModel("https://open.bigmodel.cn/api/anthropic")
 
             default:
                 throw new Error(`Unknown provider: ${this.config.provider}`)

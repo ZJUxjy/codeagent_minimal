@@ -1,19 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
-import type { CoreMessage } from "ai"
 import { LLMClient } from "../../llm.js"
 import { Agent } from "../agent.js"
 import { Tool } from "../tools/types.js"
 import { z } from "zod"
-
-// Helper: build a mock LLM that emits tool calls then stops
-function mockStream(toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }>) {
-    return vi.spyOn(LLMClient.prototype, "stream").mockImplementation(function* () {
-        for (const call of toolCalls) {
-            yield { type: "tool_call" as const, id: call.id, name: call.name, args: call.args }
-        }
-        yield { type: "done" as const, finishReason: "tool_calls" }
-    } as any)
-}
 
 // Helper: mock that returns stop on second call (after tool results are in)
 function mockTwoPhaseStream(toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }>) {
@@ -70,7 +59,7 @@ describe("parallel tool execution", () => {
     })
 
     it("executes two tools faster than sequential would", async () => {
-        const DELAY = 80
+        const DELAY = 150
 
         mockTwoPhaseStream([
             { id: "tc_a", name: "slow_a", args: {} },
@@ -85,8 +74,8 @@ describe("parallel tool execution", () => {
         await collectEvents(agent)
         const elapsed = Date.now() - start
 
-        // Parallel: should finish in ~DELAY ms, not ~2*DELAY
-        expect(elapsed).toBeLessThan(DELAY * 1.8)
+        // Sequential would take ~2*DELAY; parallel should be well under that
+        expect(elapsed).toBeLessThan(DELAY * 2 - 50)
     })
 
     it("yields tool_result events in original call order even when faster tool finishes second", async () => {
@@ -107,32 +96,6 @@ describe("parallel tool execution", () => {
         expect(results).toHaveLength(2)
         expect(results[0].id).toBe("tc_a")
         expect(results[1].id).toBe("tc_b")
-    })
-
-    it("writes tool messages to store in original call order", async () => {
-        mockTwoPhaseStream([
-            { id: "tc_1", name: "tool_one", args: {} },
-            { id: "tc_2", name: "tool_two", args: {} },
-            { id: "tc_3", name: "tool_three", args: {} },
-        ])
-
-        const agent = new Agent({ provider: "openai", model: "gpt-4o", cwd: "/tmp" })
-        agent.getToolsRegistry().register(delayTool("tool_one", 60, "r1"))
-        agent.getToolsRegistry().register(delayTool("tool_two", 5, "r2"))
-        agent.getToolsRegistry().register(delayTool("tool_three", 30, "r3"))
-
-        // Access internal store via clearHistory trick
-        const storeMessages: CoreMessage[] = []
-        const origClear = agent.clearHistory.bind(agent)
-        agent.clearHistory = () => {
-            origClear()
-            storeMessages.length = 0
-        }
-
-        await collectEvents(agent)
-
-        // Spy on store via replaceStore: re-read via a store wrapper
-        // Instead, verify via the tool_result event order (store order matches)
     })
 
     it("store tool messages appear in call order (verified via events)", async () => {

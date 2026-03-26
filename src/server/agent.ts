@@ -216,6 +216,8 @@ export class Agent {
                     return
                 }
 
+                // Two separate loops: all store writes must complete before any yield,
+                // so the store is fully consistent if a consumer reads it on receiving an event.
                 for (let i = 0; i < pendingToolEvents.length; i++) {
                     const call = pendingToolEvents[i]
                     const result = results[i]
