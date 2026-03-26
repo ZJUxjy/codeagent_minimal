@@ -206,21 +206,28 @@ export class Agent {
                 // Phase 2: persist assistant BEFORE tool results (correct message order)
                 persistAssistantStep(assistantContent, toolCallsThisTurn)
 
-                // Phase 3: execute tools and add results after the assistant message
-                for (const call of pendingToolEvents) {
-                    if (isAborted()) {
-                        yield { type: "done", finishReason: "interrupted" }
-                        return
-                    }
+                // Phase 3: execute tools in parallel, then write results in original order
+                const results = await Promise.all(
+                    pendingToolEvents.map(call => this.executeTool(call))
+                )
 
-                    const result = await this.executeTool(call)
-                    const toolContent: ToolContent = [
-                        { type: "tool-result", toolCallId: call.id, toolName: call.name, result: result.content, isError: result.isError },
-                    ]
+                if (isAborted()) {
+                    yield { type: "done", finishReason: "interrupted" }
+                    return
+                }
+
+                for (let i = 0; i < pendingToolEvents.length; i++) {
+                    const call = pendingToolEvents[i]
+                    const result = results[i]
                     this.store.add({
                         role: "tool",
-                        content: toolContent,
+                        content: [{ type: "tool-result", toolCallId: call.id, toolName: call.name, result: result.content, isError: result.isError }],
                     } as CoreMessage)
+                }
+
+                for (let i = 0; i < pendingToolEvents.length; i++) {
+                    const call = pendingToolEvents[i]
+                    const result = results[i]
                     yield { type: "tool_result", id: call.id, content: result.content, isError: result.isError }
                 }
 
