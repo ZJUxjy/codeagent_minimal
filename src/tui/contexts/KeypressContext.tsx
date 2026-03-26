@@ -23,6 +23,7 @@ interface KeypressContextValue {
 	unsubscribePaste: (handler: PasteHandler) => void;
 	subscribeKey: (handler: RawKeyHandler) => void;
 	unsubscribeKey: (handler: RawKeyHandler) => void;
+	isSuppressing: () => boolean;
 }
 
 const KeypressContext = createContext<KeypressContextValue | null>(null);
@@ -35,6 +36,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 	const keySubscribers = useRef<Set<RawKeyHandler>>(new Set());
 	const pasteBuffer = useRef("");
 	const isPasting = useRef(false);
+	const suppressingRef = useRef(false);
 
 	const broadcast = useCallback((key: PasteKey) => {
 		for (const handler of subscribers.current) {
@@ -72,6 +74,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 
 			if (!isPasting.current && str.includes(PASTE_START)) {
 				isPasting.current = true;
+				suppressingRef.current = true;
 				pasteBuffer.current = str.slice(
 					str.indexOf(PASTE_START) + PASTE_START.length,
 				);
@@ -82,6 +85,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 					isPasting.current = false;
 					pasteBuffer.current = "";
 					broadcastRef.current({ paste: true, sequence: text });
+					Promise.resolve().then(() => { suppressingRef.current = false; });
 				}
 				return;
 			}
@@ -93,6 +97,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 					isPasting.current = false;
 					pasteBuffer.current = "";
 					broadcastRef.current({ paste: true, sequence: text });
+					Promise.resolve().then(() => { suppressingRef.current = false; });
 				} else {
 					pasteBuffer.current += str;
 				}
@@ -100,7 +105,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 			}
 		};
 
-		process.stdin.on("data", handleData);
+		process.stdin.prependListener("data", handleData);
 		return () => {
 			process.stdin.off("data", handleData);
 			process.stdout.write("\x1b[?2004l");
@@ -123,8 +128,10 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 		keySubscribers.current.delete(handler);
 	}, []);
 
+	const isSuppressing = useCallback(() => suppressingRef.current, []);
+
 	return (
-		<KeypressContext.Provider value={{ subscribePaste, unsubscribePaste, subscribeKey, unsubscribeKey }}>
+		<KeypressContext.Provider value={{ subscribePaste, unsubscribePaste, subscribeKey, unsubscribeKey, isSuppressing }}>
 			{children}
 		</KeypressContext.Provider>
 	);

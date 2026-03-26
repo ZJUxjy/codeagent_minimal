@@ -4,7 +4,7 @@ import { CommandCompletion } from './CommandCompletion.js'
 import { MultilineTextInput } from './MultilineTextInput.js'
 import { useInputBuffer } from '../hooks/useInputBuffer.js'
 import { useInputHistory } from '../hooks/useInputHistory.js'
-import { usePasteHandler, useKeyHandler } from '../contexts/KeypressContext.js'
+import { usePasteHandler, useKeyHandler, useKeypressContext } from '../contexts/KeypressContext.js'
 import type { SlashCommand } from '../../commands/types.js'
 import { useTheme } from '../themes/ThemeContext.js'
 import { escapeRegex } from '../../utils/regex.js'
@@ -90,6 +90,8 @@ export const InputBox = ({ onSubmit, onClear, onInterrupt, disabled, commands = 
             matchedCommands.length > 0
     }, [text, matchedCommands.length])
 
+    const { isSuppressing } = useKeypressContext()
+
     usePasteHandler(
         useCallback((key) => {
             const pasted = key.sequence.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -147,6 +149,7 @@ export const InputBox = ({ onSubmit, onClear, onInterrupt, disabled, commands = 
     )
 
     useInput((input, key) => {
+        if (isSuppressing()) return
         if (disabled) {
             if (key.escape) {
                 onInterrupt?.()

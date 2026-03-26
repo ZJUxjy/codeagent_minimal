@@ -6,3 +6,8 @@ config.json
 minimax_settings.json
 CLAUDE.md
 debug/*.log
+
+# Benchmark: generated results and downloaded data
+benchmark/results/
+benchmark/__pycache__/
+benchmark/data/
