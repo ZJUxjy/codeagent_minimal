@@ -9,7 +9,9 @@ import type { Provider } from "./protocol/types.js"
 // Re-export Provider for backward compatibility
 export { type Provider } from "./protocol/types.js"
 
-// createAnthropic appends /messages to the base URL, so it must end with /v1.
+/**
+ * Normalizes baseURL for Anthropic-compatible APIs (ensures /v1 suffix, deduplicates slashes).
+ */
 export function normalizeAnthropicCompatibleBaseURL(baseURL: string | undefined, fallback: string): string {
     const use = (baseURL?.trim() || fallback).trim()
     let u = use.replace(/\/+$/, "")
@@ -103,10 +105,7 @@ export class LLMClient {
     }
 
     /**
-     * 流式调用 LLM
-     * @param messages 对话历史
-     * @param tools 可用工具定义
-     * @yields StreamEvent 流式事件
+     * Stream LLM responses with tool support.
      */
     async *stream(messages: CoreMessage[], tools: Record<string, { description: string; parameters: unknown }>, options?: { system?: string }): AsyncGenerator<StreamEvent> {
         const model = this.getModel()

@@ -18,6 +18,7 @@ import {
     tryParseThemeId,
 } from './themes/presets.js'
 import { getGlobalLogger } from '../utils/logger.js'
+import { getErrorMessage } from '../utils/error.js'
 
 interface AppProps {
     clientOptions: ClientOptions
@@ -273,11 +274,11 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
 
                 try {
                     await client.chat(result.content, config.cwd)
-                } catch (error: any) {
+                } catch (error) {
                     setMessages(prev => [...prev, {
                         id: `error-${Date.now()}`,
                         role: 'assistant' as const,
-                        content: `Error: ${error.message}`,
+                        content: `Error: ${getErrorMessage(error)}`,
                         timestamp: Date.now(),
                     } as Message])
                     setIsLoading(false)

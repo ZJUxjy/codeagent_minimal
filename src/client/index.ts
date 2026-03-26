@@ -4,6 +4,7 @@ import * as readline from "readline"
 import type { JsonRpcRequest, JsonRpcNotification, LopConfig, Question } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 import { getGlobalLogger } from "../utils/logger.js"
+import { getErrorMessage } from "../utils/error.js"
 
 /** TUI 主题，与 `src/tui/themes` 中 ThemeId 一致 */
 export type TuiThemeId = "dark" | "light" | "ansi"
@@ -49,13 +50,12 @@ export class Client {
     if (options.mcpServers) env.LOP_MCP_SERVERS = JSON.stringify(options.mcpServers)
     if (options.mcp) env.LOP_MCP = JSON.stringify(options.mcp)
 
-    // 调试日志
     if (this.debug) {
       if (options.apiKey) {
-        console.error(`[Debug] Passing API Key: ${options.apiKey.slice(0, 10)}...`)
+        getGlobalLogger().debug('client', `Passing API Key: ${options.apiKey.slice(0, 10)}...`)
       }
       if (options.baseURL) {
-        console.error(`[Debug] Passing Base URL: ${options.baseURL}`)
+        getGlobalLogger().debug('client', `Passing Base URL: ${options.baseURL}`)
       }
     }
 
@@ -76,12 +76,12 @@ export class Client {
       try {
         this.handleMessage(JSON.parse(line))
       } catch (error) {
-        console.error("Failed to parse server message:", error)
+        getGlobalLogger().error('client', 'Failed to parse server message:', getErrorMessage(error))
       }
     })
 
     this.server.on("error", (error) => {
-      console.error("Server error:", error)
+      getGlobalLogger().error('server', 'Server error:', getErrorMessage(error))
     })
   }
 
