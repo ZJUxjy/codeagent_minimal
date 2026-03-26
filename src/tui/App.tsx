@@ -5,6 +5,7 @@ import { Header } from './components/Header.js'
 import { MessageList } from './components/MessageList.js'
 import { InputBox } from './components/InputBox.js'
 import { LoadingIndicator } from './components/LoadingIndicator.js'
+import { AskQuestionDialog } from './components/AskQuestionDialog.js'
 import { useClient } from './hooks/useClient.js'
 import { useSlashCommandProcessor } from './hooks/useSlashCommandProcessor.js'
 import type { Message, StreamingState, ToolStats, PendingToolCall } from './types.js'
@@ -41,6 +42,15 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
     // 工具统计
     const [toolStats, setToolStats] = useState<ToolStats>(new Map())
     const pendingCallsRef = useRef<Map<string, PendingToolCall>>(new Map())
+
+    const [pendingQuestion, setPendingQuestion] = useState<{
+        requestId: string
+        questions: Array<{
+            id: string; prompt: string;
+            options: Array<{ label: string; description?: string }>;
+            allowMultiple?: boolean
+        }>
+    } | null>(null)
 
     const [streaming, setStreaming] = useState<StreamingState>({
         content: '',
@@ -173,6 +183,12 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     return msg
                 }))
                 break
+            case 'ask_question':
+                setPendingQuestion({
+                    requestId: event.requestId,
+                    questions: event.questions,
+                })
+                break
             case 'done':
                 getGlobalLogger().info('done',`${streamingRef.current.slice(0,20)}`)
                 if (streamingRef.current) {
@@ -276,6 +292,18 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
     }, [client])
 
+    const handleQuestionSubmit = useCallback(async (answers: Record<string, string>) => {
+        if (!client || !pendingQuestion) return
+        await client.respondToQuestion(pendingQuestion.requestId, answers)
+        setPendingQuestion(null)
+    }, [client, pendingQuestion])
+
+    const handleQuestionCancel = useCallback(async () => {
+        if (!client || !pendingQuestion) return
+        await client.respondToQuestion(pendingQuestion.requestId, undefined, true)
+        setPendingQuestion(null)
+    }, [client, pendingQuestion])
+
     const handleClear = useCallback(async () => {
         if (client) {
             await client.clear()
@@ -311,11 +339,18 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                             text={streaming.isThinkingStreaming ? "Thinking..." : undefined}
                         />
                     )}
+                    {pendingQuestion && (
+                        <AskQuestionDialog
+                            questions={pendingQuestion.questions}
+                            onSubmit={handleQuestionSubmit}
+                            onCancel={handleQuestionCancel}
+                        />
+                    )}
                     <InputBox
                         onSubmit={handleSubmit}
                         onClear={handleClear}
                         onInterrupt={handleInterrupt}
-                        disabled={isLoading || !isReady}
+                        disabled={isLoading || !isReady || pendingQuestion !== null}
                         commands={registry.getVisibleCommands()}
                     />
                 </Box>

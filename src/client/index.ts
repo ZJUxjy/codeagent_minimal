@@ -29,6 +29,11 @@ export type ClientEvent =
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; id: string; content: string; isError?: boolean }
   | { type: "done"; finishReason: string }
+  | { type: "ask_question"; requestId: string; questions: Array<{
+      id: string; prompt: string;
+      options: Array<{ label: string; description?: string }>;
+      allowMultiple?: boolean
+    }> }
 
 export class Client {
   private server: ChildProcess
@@ -127,6 +132,13 @@ export class Client {
       case "done":
         this.eventHandler({ type: "done", finishReason: p.finishReason })
         break
+      case "ask_question":
+        this.eventHandler({
+          type: "ask_question",
+          requestId: p.requestId,
+          questions: p.questions,
+        })
+        break
       default:
         console.warn(`Unknown notification method: ${method}`)
     }
@@ -177,6 +189,11 @@ export class Client {
   /** Reload MCP tools */
   async mcpReload(): Promise<{ servers: Array<{ name: string; status: string; error?: string }>; reloaded: boolean }> {
     return this.sendRequest("mcp_reload")
+  }
+
+  /** Respond to an ask_question notification */
+  async respondToQuestion(requestId: string, answers?: Record<string, string>, cancelled?: boolean): Promise<void> {
+    await this.sendRequest("ask_question_response", { requestId, answers, cancelled })
   }
 
   /** 加载历史会话（替换当前 Agent store） */

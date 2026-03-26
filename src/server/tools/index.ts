@@ -6,6 +6,7 @@ import { bashTool } from "./bash.js"
 import { globTool } from "./glob.js"
 import { grepTool } from "./grep.js"
 import { listDirectoryTool } from "./listDirectory.js"
+import { askQuestionTool } from "./askQuestion.js"
 import { createDiscoveredMcpTool } from "./mcpTool.js"
 import { McpClientManager } from "../mcp/clientManager.js"
 import type { McpServerConfig } from "../../protocol/types.js"
@@ -29,6 +30,7 @@ export class ToolRegistry {
             this.register(globTool)
             this.register(grepTool)
             this.register(listDirectoryTool)
+            this.register(askQuestionTool)
         }
 
         if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {

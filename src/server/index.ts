@@ -5,10 +5,13 @@ import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 import { FileStore } from "./stores/FileStore.js"
 import type { MessageStore } from "./store.js"
+import { QuestionBridge } from "./questionBridge.js"
+import { AskQuestionResponseParamsSchema } from "../protocol/types.js"
 
 let agent: Agent | null = null
 let currentCwd = process.cwd()
 let currentAbortController: AbortController | null = null
+let questionBridge: QuestionBridge | null = null
 
 function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
     const config: AgentConfig["mcpConfig"] = {}
@@ -74,7 +77,8 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             debugLog("server", `API Key: ${config.apiKey?.slice(0, 10)}...`)
             debugLog("server", `Base URL: ${config.baseURL}`)
 
-            agent = new Agent(config)
+            questionBridge = new QuestionBridge(sendNotification)
+            agent = new Agent({ ...config, questionBridge })
 
             if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
                 agent.discoverMcpTools().catch((err) => {
@@ -101,7 +105,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             if (cwd && cwd !== currentCwd) {
                 currentCwd = cwd
                 const config = buildServerAgentConfig(currentCwd)
-                agent = new Agent(config)
+                agent = new Agent({ ...config, questionBridge: questionBridge! })
                 if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
                     agent.discoverMcpTools().catch((err) => {
                         debugLog("server", "MCP discovery failed:", err)
@@ -153,6 +157,22 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         case "interrupt": {
             if (currentAbortController) {
                 currentAbortController.abort()
+            }
+            if (questionBridge) {
+                questionBridge.cancelAll()
+            }
+            sendResponse(requestId, {})
+            break
+        }
+
+        case "ask_question_response": {
+            const parseResult = AskQuestionResponseParamsSchema.safeParse(params)
+            if (!parseResult.success) {
+                sendError(requestId, -32602, "Invalid params")
+                return
+            }
+            if (questionBridge) {
+                questionBridge.handleResponse(parseResult.data)
             }
             sendResponse(requestId, {})
             break

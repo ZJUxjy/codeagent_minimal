@@ -5,7 +5,8 @@ import { ToolRegistry, type ToolRegistryOptions } from "./tools/index.js"
 import { InMemoryStore, type MessageStore } from "./store.js"
 import { noopHooks, type AgentHooks, type ToolCall } from "./hooks/types.js"
 import type { ToolContext } from "./tools/types.js"
-import type { LopConfig, Provider } from "../protocol/types.js"
+import type { LopConfig, Provider, Question } from "../protocol/types.js"
+import type { QuestionBridge } from "./questionBridge.js"
 import { evaluateToolPolicy } from "./security/policy.js"
 import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
@@ -24,6 +25,8 @@ export interface AgentConfig {
     tools?: ToolRegistry
     /** Max outer turns; default 10. Child runs often use a lower value. */
     maxTurns?: number
+    /** Bridge for ask_question tool support. */
+    questionBridge?: QuestionBridge
 }
 
 export type AgentEvent =
@@ -45,10 +48,12 @@ export class Agent {
     private cwd: string
     private readonly maxTurns: number
     private readonly snapshot: AgentConfigSnapshot
+    private questionBridge?: QuestionBridge
     private activeSignal?: AbortSignal
 
     constructor(config: AgentConfig) {
-        const { store, tools, mcpConfig, maxTurns, hooks, ...snapshot } = config
+        const { store, tools, mcpConfig, maxTurns, hooks, questionBridge, ...snapshot } = config
+        this.questionBridge = questionBridge
         this.snapshot = {
             ...snapshot,
             ...(mcpConfig !== undefined ? { mcpConfig } : {}),
@@ -252,7 +257,13 @@ export class Agent {
             }
         }
 
-        const ctx: ToolContext = { cwd: this.cwd, signal: this.activeSignal }
+        const ctx: ToolContext = {
+            cwd: this.cwd,
+            signal: this.activeSignal,
+            askQuestion: this.questionBridge
+                ? (questions: Question[]) => this.questionBridge!.ask(questions, this.activeSignal)
+                : undefined,
+        }
 
         try {
             const content = await tool.execute(call.args as any, ctx)

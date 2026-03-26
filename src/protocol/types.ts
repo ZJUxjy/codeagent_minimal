@@ -100,6 +100,40 @@ export interface DoneNotification extends JsonRpcNotification {
     }
 }
 
+// ============ Ask Question 类型 ============
+
+/** 单个选项 */
+export interface QuestionOption {
+    label: string
+    description?: string
+}
+
+/** 单个问题 */
+export interface Question {
+    id: string
+    prompt: string
+    options: QuestionOption[]
+    allowMultiple?: boolean
+}
+
+/** ask_question 通知 (server → client) */
+export interface AskQuestionNotification extends JsonRpcNotification {
+    method: "ask_question"
+    params: {
+        requestId: string
+        questions: Question[]
+    }
+}
+
+/** ask_question_response 请求参数 (client → server) */
+export const AskQuestionResponseParamsSchema = z.object({
+    requestId: z.string(),
+    answers: z.record(z.string(), z.string()).optional(),
+    cancelled: z.boolean().optional(),
+})
+
+export type AskQuestionResponseParams = z.infer<typeof AskQuestionResponseParamsSchema>
+
 /** 所有通知类型的联合 */
 export type ServerNotification =
     | ContentNotification
@@ -108,6 +142,7 @@ export type ServerNotification =
     | ToolCallNotification
     | ToolResultNotification
     | DoneNotification
+    | AskQuestionNotification
 
 /** Provider type */
 export type Provider = "openai" | "anthropic" | "openrouter" | "minimax" | "google"
