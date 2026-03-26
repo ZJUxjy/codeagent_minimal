@@ -10,6 +10,7 @@ import type { QuestionBridge } from "./questionBridge.js"
 import { evaluateToolPolicy } from "./security/policy.js"
 import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
+import { truncateMessages } from "./utils/truncateMessages.js"
 
 export interface AgentConfig {
     provider: Provider
@@ -164,7 +165,7 @@ export class Agent {
                     return
                 }
 
-                const stream = this.llm.stream(store.getAll(), toolDefs, systemPrompt ? { system: systemPrompt } : undefined)
+                const stream = this.llm.stream(truncateMessages(store.getAll()), toolDefs, systemPrompt ? { system: systemPrompt } : undefined)
                 let assistantContent = ""
                 const toolCallsThisTurn: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = []
                 const pendingToolEvents: Array<{ id: string; name: string; args: Record<string, unknown> }> = []
