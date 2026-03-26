@@ -43,10 +43,10 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
     const [toolStats, setToolStats] = useState<ToolStats>(new Map())
     const pendingCallsRef = useRef<Map<string, PendingToolCall>>(new Map())
 
-    const [pendingQuestion, setPendingQuestion] = useState<{
+    const [pendingQuestions, setPendingQuestions] = useState<Array<{
         requestId: string
         questions: Question[]
-    } | null>(null)
+    }>>([])
 
     const [streaming, setStreaming] = useState<StreamingState>({
         content: '',
@@ -180,9 +180,15 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 }))
                 break
             case 'ask_question':
-                setPendingQuestion({
-                    requestId: event.requestId,
-                    questions: event.questions,
+                setPendingQuestions(prev => {
+                    if (prev.some(q => q.requestId === event.requestId)) {
+                        getGlobalLogger().warn('ask_question', `Duplicate requestId ignored: ${event.requestId}`)
+                        return prev
+                    }
+                    return [...prev, {
+                        requestId: event.requestId,
+                        questions: event.questions,
+                    }]
                 })
                 break
             case 'done':
@@ -286,24 +292,28 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         }
         setIsLoading(false)
         setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
+        setPendingQuestions([])
     }, [client])
+
+    const pendingQuestion = pendingQuestions[0] ?? null
 
     const handleQuestionSubmit = useCallback(async (answers: Record<string, string>) => {
         if (!client || !pendingQuestion) return
         await client.respondToQuestion(pendingQuestion.requestId, answers)
-        setPendingQuestion(null)
+        setPendingQuestions(prev => prev.slice(1))
     }, [client, pendingQuestion])
 
     const handleQuestionCancel = useCallback(async () => {
         if (!client || !pendingQuestion) return
         await client.respondToQuestion(pendingQuestion.requestId, undefined, true)
-        setPendingQuestion(null)
+        setPendingQuestions(prev => prev.slice(1))
     }, [client, pendingQuestion])
 
     const handleClear = useCallback(async () => {
         if (client) {
             await client.clear()
             setMessages([])
+            setPendingQuestions([])
         }
     }, [client])
 
