@@ -89,7 +89,7 @@ export class LLMClient {
      * @param tools 可用工具定义
      * @yields StreamEvent 流式事件
      */
-    async *stream(messages: CoreMessage[], tools: Record<string, { description: string; parameters: unknown }>): AsyncGenerator<StreamEvent> {
+    async *stream(messages: CoreMessage[], tools: Record<string, { description: string; parameters: unknown }>, options?: { system?: string }): AsyncGenerator<StreamEvent> {
         const model = this.getModel()
 
         this.log(`Starting stream with ${messages.length} messages`)
@@ -106,6 +106,7 @@ export class LLMClient {
             this.log(`Calling streamText...`)
             const result = streamText({
                 model,
+                ...(options?.system ? { system: options.system } : {}),
                 messages,
                 tools: toolDefs,
                 maxSteps: 10,

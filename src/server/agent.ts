@@ -8,6 +8,7 @@ import type { ToolContext } from "./tools/types.js"
 import type { LopConfig, Provider } from "../protocol/types.js"
 import { evaluateToolPolicy } from "./security/policy.js"
 import { createDelegationTool } from "./tools/delegateTool.js"
+import { listSubagents } from "./subagents/manager.js"
 
 export interface AgentConfig {
     provider: Provider
@@ -93,6 +94,15 @@ export class Agent {
         await this.tools.discoverMcpTools()
     }
 
+    /** Build a system-level reminder listing available subagents (if the `agent` tool is registered). */
+    private async buildSubagentReminder(): Promise<string | undefined> {
+        if (!this.tools.get("agent")) return undefined
+        const agents = await listSubagents(this.cwd)
+        if (agents.length === 0) return undefined
+        const lines = agents.map(a => `- **${a.name}**: ${a.description}`)
+        return `You have an \`agent\` tool to delegate sub-tasks. Available subagent profiles:\n${lines.join("\n")}`
+    }
+
     getMcpManager() {
         return this.tools.getMcpManager()
     }
@@ -111,6 +121,7 @@ export class Agent {
         this.activeSignal = signal
         const toolDefs = this.tools.getToolDefinitions()
         const store = this.store
+        const systemPrompt = await this.buildSubagentReminder()
 
         function isAborted(): boolean {
             return Boolean(signal?.aborted)
@@ -148,7 +159,7 @@ export class Agent {
                     return
                 }
 
-                const stream = this.llm.stream(store.getAll(), toolDefs)
+                const stream = this.llm.stream(store.getAll(), toolDefs, systemPrompt ? { system: systemPrompt } : undefined)
                 let assistantContent = ""
                 const toolCallsThisTurn: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = []
                 const pendingToolEvents: Array<{ id: string; name: string; args: Record<string, unknown> }> = []
