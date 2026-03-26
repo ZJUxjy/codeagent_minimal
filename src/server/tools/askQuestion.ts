@@ -23,7 +23,8 @@ export const askQuestionTool: Tool = {
 Each question must have 2-6 options. Users can always provide custom input via "Other".`,
     parameters: AskQuestionParamsSchema,
 
-    async execute(params, ctx: ToolContext): Promise<string> {
+    async execute(rawParams, ctx: ToolContext): Promise<string> {
+        const params = rawParams as z.infer<typeof AskQuestionParamsSchema>
         if (!ctx.askQuestion) {
             return "Error: ask_question is not available in this context"
         }
@@ -40,7 +41,7 @@ Each question must have 2-6 options. Users can always provide custom input via "
 
         const formatted = Object.entries(result.answers)
             .map(([questionId, answer]) => {
-                const question = params.questions.find((q: { id: string }) => q.id === questionId)
+                const question = params.questions.find(q => q.id === questionId)
                 const label = question?.prompt ?? `Question ${questionId}`
                 return `**${label}**: ${answer}`
             })

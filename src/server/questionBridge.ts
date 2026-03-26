@@ -12,11 +12,8 @@ export class QuestionBridge {
         resolve: (result: AskQuestionResult) => void
     }>()
     private counter = 0
-    private sendNotification: SendNotificationFn
 
-    constructor(sendNotification: SendNotificationFn) {
-        this.sendNotification = sendNotification
-    }
+    constructor(private sendNotification: SendNotificationFn) {}
 
     async ask(questions: Question[], signal?: AbortSignal): Promise<AskQuestionResult> {
         const requestId = `ask_${++this.counter}_${Date.now()}`

@@ -1,18 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { useTheme } from '../themes/ThemeContext.js'
-
-interface QuestionOption {
-    label: string
-    description?: string
-}
-
-interface Question {
-    id: string
-    prompt: string
-    options: QuestionOption[]
-    allowMultiple?: boolean
-}
+import type { Question } from '../../protocol/types.js'
 
 interface AskQuestionDialogProps {
     questions: Question[]
@@ -69,7 +58,6 @@ export const AskQuestionDialog: React.FC<AskQuestionDialogProps> = ({
             return
         }
 
-        // Number key quick select
         const num = parseInt(input, 10)
         if (!isNaN(num) && num >= 1 && num <= optionCount) {
             setSelectedIndex(num - 1)
@@ -88,7 +76,6 @@ export const AskQuestionDialog: React.FC<AskQuestionDialogProps> = ({
             return
         }
 
-        // Space to toggle in multi-select
         if (input === ' ' && isMulti) {
             const option = question.options[selectedIndex]
             if (!option) return

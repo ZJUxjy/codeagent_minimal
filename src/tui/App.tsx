@@ -10,7 +10,7 @@ import { useClient } from './hooks/useClient.js'
 import { useSlashCommandProcessor } from './hooks/useSlashCommandProcessor.js'
 import type { Message, StreamingState, ToolStats, PendingToolCall } from './types.js'
 import type { ClientOptions } from '../client/index.js'
-import type { LopConfig } from '../protocol/types.js'
+import type { LopConfig, Question } from '../protocol/types.js'
 import type { ThemeId } from './themes/types.js'
 import {
     listBuiltinThemes,
@@ -45,11 +45,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
 
     const [pendingQuestion, setPendingQuestion] = useState<{
         requestId: string
-        questions: Array<{
-            id: string; prompt: string;
-            options: Array<{ label: string; description?: string }>;
-            allowMultiple?: boolean
-        }>
+        questions: Question[]
     } | null>(null)
 
     const [streaming, setStreaming] = useState<StreamingState>({

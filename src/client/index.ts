@@ -1,7 +1,7 @@
 // src/client/index.ts
 import { spawn, type ChildProcess } from "child_process"
 import * as readline from "readline"
-import type { JsonRpcRequest, JsonRpcNotification, LopConfig } from "../protocol/types.js"
+import type { JsonRpcRequest, JsonRpcNotification, LopConfig, Question } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 import { getGlobalLogger } from "../utils/logger.js"
 
@@ -29,11 +29,7 @@ export type ClientEvent =
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; id: string; content: string; isError?: boolean }
   | { type: "done"; finishReason: string }
-  | { type: "ask_question"; requestId: string; questions: Array<{
-      id: string; prompt: string;
-      options: Array<{ label: string; description?: string }>;
-      allowMultiple?: boolean
-    }> }
+  | { type: "ask_question"; requestId: string; questions: Question[] }
 
 export class Client {
   private server: ChildProcess
