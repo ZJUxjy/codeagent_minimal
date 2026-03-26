@@ -9,6 +9,21 @@ import type { Provider } from "./protocol/types.js"
 // Re-export Provider for backward compatibility
 export { type Provider } from "./protocol/types.js"
 
+/**
+ * Anthropic 兼容客户端（createAnthropic）：SDK 请求 ${baseURL}/messages，基址需以 /v1 结尾；
+ * 合并 scheme 之后路径里的重复 /（不破坏 https://）。
+ */
+export function normalizeAnthropicCompatibleBaseURL(baseURL: string | undefined, fallback: string): string {
+    const use = (baseURL?.trim() || fallback).trim()
+    let u = use.replace(/\/+$/, "")
+    if (!u.endsWith("/v1")) u = `${u}/v1`
+    const schemeSep = u.indexOf("://")
+    if (schemeSep !== -1) {
+        return u.slice(0, schemeSep + 3) + u.slice(schemeSep + 3).replace(/\/+/g, "/")
+    }
+    return u.replace(/\/+/g, "/")
+}
+
 export interface LLMConfig {
     provider: Provider
     model: string
@@ -67,7 +82,10 @@ export class LLMClient {
                 // Vercel AI SDK 会发送到 ${baseURL}/messages，所以需要包含 /v1 路径
                 // MiniMax 需要 Bearer token 认证，而不是默认的 x-api-key header
                 const minimaxAnthropic = createAnthropic({
-                    baseURL: this.config.baseURL ?? "https://api.minimaxi.com/anthropic/v1",
+                    baseURL: normalizeAnthropicCompatibleBaseURL(
+                        this.config.baseURL,
+                        "https://api.minimaxi.com/anthropic/v1",
+                    ),
                     apiKey: this.config.apiKey,
                     headers: {
                         Authorization: `Bearer ${this.config.apiKey}`,
@@ -77,6 +95,28 @@ export class LLMClient {
 
             case "google":
                 return google(this.config.model)
+
+            case "kimi":
+                // Kimi 使用 Anthropic 兼容 API
+                const kimi = createAnthropic({
+                    baseURL: normalizeAnthropicCompatibleBaseURL(
+                        this.config.baseURL,
+                        "https://api.kimi.com/coding",
+                    ),
+                    apiKey: this.config.apiKey,
+                })
+                return kimi(this.config.model)
+
+            case "glm":
+                // GLM (智谱) 使用 Anthropic 兼容 API
+                const glm = createAnthropic({
+                    baseURL: normalizeAnthropicCompatibleBaseURL(
+                        this.config.baseURL,
+                        "https://open.bigmodel.cn/api/anthropic",
+                    ),
+                    apiKey: this.config.apiKey,
+                })
+                return glm(this.config.model)
 
             default:
                 throw new Error(`Unknown provider: ${this.config.provider}`)

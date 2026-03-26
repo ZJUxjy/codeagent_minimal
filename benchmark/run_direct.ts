@@ -20,7 +20,8 @@
 import * as fs from "fs"
 import * as path from "path"
 import { generateText } from "ai"
-import { anthropic, createAnthropic } from "@ai-sdk/anthropic"
+import { createAnthropic } from "@ai-sdk/anthropic"
+import { normalizeAnthropicCompatibleBaseURL } from "../src/llm.js"
 import { openai, createOpenAI } from "@ai-sdk/openai"
 
 // ── CLI args ─────────────────────────────────────────────────────────────────
@@ -74,7 +75,12 @@ function getModel() {
 
     switch (PROVIDER) {
         case "anthropic": {
-            const client = createAnthropic({ apiKey })
+            const client = createAnthropic({
+                apiKey,
+                ...(baseURL
+                    ? { baseURL: normalizeAnthropicCompatibleBaseURL(baseURL, baseURL) }
+                    : {}),
+            })
             return client(MODEL)
         }
         case "openai": {

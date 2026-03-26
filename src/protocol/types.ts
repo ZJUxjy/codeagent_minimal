@@ -145,7 +145,7 @@ export type ServerNotification =
     | AskQuestionNotification
 
 /** Provider type */
-export type Provider = "openai" | "anthropic" | "openrouter" | "minimax" | "google"
+export type Provider = "openai" | "anthropic" | "openrouter" | "minimax" | "google" | "kimi" | "glm"
 
 export interface LopConfig {
     provider?: Provider
