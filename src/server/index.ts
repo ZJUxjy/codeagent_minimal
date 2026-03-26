@@ -171,8 +171,10 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 sendError(requestId, -32602, "Invalid params")
                 return
             }
-            if (questionBridge) {
-                questionBridge.handleResponse(parseResult.data)
+            const handled = questionBridge?.handleResponse(parseResult.data) ?? false
+            if (!handled) {
+                sendError(requestId, -32004, "Unknown or expired ask_question requestId")
+                return
             }
             sendResponse(requestId, {})
             break
