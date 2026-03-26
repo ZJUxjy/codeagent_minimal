@@ -72,6 +72,8 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 				return;
 			}
 
+			const endSuppressing = () => Promise.resolve().then(() => { suppressingRef.current = false; });
+
 			if (!isPasting.current && str.includes(PASTE_START)) {
 				isPasting.current = true;
 				suppressingRef.current = true;
@@ -85,7 +87,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 					isPasting.current = false;
 					pasteBuffer.current = "";
 					broadcastRef.current({ paste: true, sequence: text });
-					Promise.resolve().then(() => { suppressingRef.current = false; });
+					endSuppressing();
 				}
 				return;
 			}
@@ -97,7 +99,7 @@ export function KeypressProvider({ children }: { children: React.ReactNode }) {
 					isPasting.current = false;
 					pasteBuffer.current = "";
 					broadcastRef.current({ paste: true, sequence: text });
-					Promise.resolve().then(() => { suppressingRef.current = false; });
+					endSuppressing();
 				} else {
 					pasteBuffer.current += str;
 				}
