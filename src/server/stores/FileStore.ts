@@ -1,6 +1,6 @@
 import type { CoreMessage } from 'ai';
 import { randomUUID } from 'crypto';
-import { existsSync, statSync, unlinkSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import type { MessageStore } from '../store.js';
 import { readLinesSync, writeLineSync } from '../utils/jsonl.js';
@@ -137,6 +137,10 @@ export class FileStore implements MessageStore {
       meta: { provider, model },
     };
     this.records.unshift(record);
+    const dir = join(this.sessionDir);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
     writeFileSync(this.filePath, '');
     for (const r of this.records) {
       writeLineSync(this.filePath, r);

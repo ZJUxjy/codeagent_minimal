@@ -25,6 +25,8 @@ export interface ClientOptions {
   resume?: boolean
   /** 会话持久化配置 */
   persistence?: { enabled?: boolean }
+  /** 技能路径配置 */
+  skills?: LopConfig["skills"]
 }
 
 export type ClientEvent =
@@ -55,6 +57,9 @@ export class Client {
     if (options.mcpServers) env.LOP_MCP_SERVERS = JSON.stringify(options.mcpServers)
     if (options.mcp) env.LOP_MCP = JSON.stringify(options.mcp)
     if (options.persistence) env.LOP_PERSISTENCE = JSON.stringify(options.persistence)
+    if (options.skills?.paths && options.skills.paths.length > 0) {
+      env.LOP_SKILLS_PATHS = options.skills.paths.join(",")
+    }
 
     if (this.debug) {
       if (options.apiKey) {

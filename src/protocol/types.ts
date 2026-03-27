@@ -165,6 +165,10 @@ export interface LopConfig {
         maxAgeDays?: number
         maxSessions?: number
     }
+    // 技能系统配置
+    skills?: {
+        paths?: string[]
+    }
 }
 
 // MCP Server 配置
