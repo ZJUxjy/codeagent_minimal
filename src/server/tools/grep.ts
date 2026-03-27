@@ -1,6 +1,9 @@
 import { z } from "zod"
 import { spawn } from "child_process"
 import type { Tool } from "./types.js"
+import { IGNORED_DIRS } from "../indexing/fileIndexManager.js"
+
+const MAX_INDEXED_CANDIDATES = 500
 
 export const grepTool: Tool = {
     name: "grep",
@@ -22,21 +25,22 @@ export const grepTool: Tool = {
         const searchPath = path ? (path.startsWith("/") ? path : `${ctx.cwd}/${path}`) : ctx.cwd
 
         const candidates = ctx.fileIndex?.search(pattern) ?? null
-        const useIndexedSearch = candidates !== null && candidates.length > 0 && candidates.length < 500
+        const useIndexedSearch = candidates !== null && candidates.length > 0 && candidates.length < MAX_INDEXED_CANDIDATES
 
         const args = buildGrepArgs({ pattern, ignoreCase, context, globPattern })
 
         if (useIndexedSearch) {
-            const dirPrefix = searchPath.endsWith('/') ? searchPath : searchPath + '/'
-            const filtered = candidates!.filter(f => f.startsWith(dirPrefix))
-            if (filtered.length === 0) {
-                return `No matches found for pattern: ${pattern}`
+            const filtered = candidates!.filter(f => f === searchPath || f.startsWith(searchPath + '/'))
+            if (filtered.length > 0) {
+                args.push(...filtered)
+            } else {
+                args.push("-r")
+                for (const dir of IGNORED_DIRS) args.push("--exclude-dir=" + dir)
+                args.push(searchPath)
             }
-            args.push(...filtered)
         } else {
             args.push("-r")
-            args.push("--exclude-dir=node_modules")
-            args.push("--exclude-dir=.git")
+            for (const dir of IGNORED_DIRS) args.push("--exclude-dir=" + dir)
             args.push(searchPath)
         }
 

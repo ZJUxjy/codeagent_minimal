@@ -81,8 +81,8 @@ export class Agent {
             this.registerDelegationTool()
         }
         this.fileIndex = new FileIndexManager(config.cwd)
-        this.fileIndex.build().catch(() => {
-            // Index build failure doesn't affect normal operation; grep falls back to full scan
+        this.fileIndex.build().catch((err) => {
+            console.warn(`File index build failed, grep will use full scan: ${err.message}`)
         })
     }
 

@@ -36,7 +36,7 @@ describe('Trigram Index E2E', () => {
         const manager = new FileIndexManager(testDir)
         await manager.build()
 
-        const candidates = manager.search('authenticateUser')
+        const candidates = manager.search('authenticateUser')!
         expect(candidates.length).toBeLessThan(10)
         expect(candidates.some(f => f.includes('auth.ts'))).toBe(true)
         expect(candidates.some(f => f.includes('Dashboard.tsx'))).toBe(false)
@@ -46,18 +46,18 @@ describe('Trigram Index E2E', () => {
         const manager = new FileIndexManager(testDir)
         await manager.build()
 
-        const candidates = manager.search('connectDatabase')
+        const candidates = manager.search('connectDatabase')!
         expect(candidates.some(f => f.includes('db.ts'))).toBe(true)
         expect(candidates.length).toBeLessThan(5)
     })
 
-    it('should return all files for pure wildcard (graceful degradation)', async () => {
+    it('should return null for pure wildcard (trigram cannot be extracted)', async () => {
         const manager = new FileIndexManager(testDir)
         await manager.build()
 
-        // ".*" can't yield trigrams → returns all files
+        // ".*" can't yield trigrams → returns null, caller should fall back to full scan
         const candidates = manager.search('.*')
-        expect(candidates.length).toBe(manager.indexedFileCount)
+        expect(candidates).toBeNull()
     })
 
     it('should reflect incremental updates', async () => {
@@ -68,7 +68,7 @@ describe('Trigram Index E2E', () => {
         writeFileSync(newFile, 'export function superSpecialFeature() {}')
         manager.onFileChanged(newFile, 'export function superSpecialFeature() {}')
 
-        const candidates = manager.search('superSpecialFeature')
+        const candidates = manager.search('superSpecialFeature')!
         expect(candidates.some(f => f.includes('newFeature.ts'))).toBe(true)
     })
 })

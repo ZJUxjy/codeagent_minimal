@@ -4,7 +4,7 @@ import fg from 'fast-glob'
 import { TrigramIndex } from './trigram.js'
 import { decompose } from './queryDecompose.js'
 
-const IGNORED_DIRS = ['node_modules', '.git', 'dist', '.next', '__pycache__', '.venv']
+export const IGNORED_DIRS = ['node_modules', '.git', 'dist', '.next', '__pycache__', '.venv']
 const IGNORED_EXTENSIONS = new Set([
     '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg', '.webp',
     '.woff', '.woff2', '.ttf', '.eot',
@@ -22,6 +22,8 @@ export class FileIndexManager {
     private index = new TrigramIndex()
     private cwd: string
     private ready = false
+    /** Content length cache, used to skip no-op index updates */
+    private contentLengths = new Map<string, number>()
 
     constructor(cwd: string) {
         this.cwd = cwd
@@ -52,6 +54,7 @@ export class FileIndexManager {
                         if (size > MAX_FILE_SIZE) return
                         const content = await readFile(filePath, 'utf-8')
                         this.index.addFile(filePath, content)
+                        this.contentLengths.set(filePath, content.length)
                     } catch {
                         // Skip unreadable files (binary, permissions, etc.)
                     }
@@ -61,22 +64,35 @@ export class FileIndexManager {
         this.ready = true
     }
 
-    search(pattern: string): string[] {
-        if (!this.ready) return []
+    /**
+     * Returns candidate file paths that may match the pattern.
+     * Returns null when the index is not ready or trigrams cannot be extracted
+     * (caller should fall back to full scan).
+     */
+    search(pattern: string): string[] | null {
+        if (!this.ready) return null
         const trigrams = decompose(pattern)
+        if (trigrams.size === 0) return null
         return this.index.query(trigrams)
     }
 
+    /** Notify that a file was changed by write/edit tool. */
     onFileChanged(filePath: string, newContent: string): void {
         if (IGNORED_EXTENSIONS.has(extname(filePath).toLowerCase())) return
         if (newContent.length > MAX_FILE_SIZE) {
             this.index.removeFile(filePath)
+            this.contentLengths.delete(filePath)
             return
         }
+        const prevLen = this.contentLengths.get(filePath)
+        if (prevLen === newContent.length) return
         this.index.updateFile(filePath, newContent)
+        this.contentLengths.set(filePath, newContent.length)
     }
 
+    /** Notify that a file was removed. */
     onFileRemoved(filePath: string): void {
         this.index.removeFile(filePath)
+        this.contentLengths.delete(filePath)
     }
 }

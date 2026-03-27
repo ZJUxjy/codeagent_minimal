@@ -32,12 +32,15 @@ export function decompose(pattern: string): Set<string> {
 /** Checks for unparenthesized top-level | */
 function hasTopLevelAlternation(pattern: string): boolean {
     let depth = 0
-    for (let i = 0; i < pattern.length; i++) {
+    let i = 0
+    while (i < pattern.length) {
         const ch = pattern[i]
-        if (ch === '\\') { i++; continue }
-        if (ch === '(' || ch === '[') depth++
-        else if (ch === ')' || ch === ']') depth--
+        if (ch === '\\') { i += 2; continue }
+        if (ch === '[') { i = skipCharClass(pattern, i); continue }
+        if (ch === '(') depth++
+        else if (ch === ')') depth--
         else if (ch === '|' && depth === 0) return true
+        i++
     }
     return false
 }

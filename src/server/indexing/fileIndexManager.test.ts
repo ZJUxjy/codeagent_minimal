@@ -29,14 +29,14 @@ describe('FileIndexManager', () => {
     it('should find candidates for a known string', async () => {
         const manager = new FileIndexManager(testDir)
         await manager.build()
-        const candidates = manager.search('hello')
+        const candidates = manager.search('hello')!
         expect(candidates.some(f => f.endsWith('hello.ts'))).toBe(true)
     })
 
     it('should not return unrelated files', async () => {
         const manager = new FileIndexManager(testDir)
         await manager.build()
-        const candidates = manager.search('hello')
+        const candidates = manager.search('hello')!
         expect(candidates.some(f => f.endsWith('foo.ts'))).toBe(false)
     })
 
@@ -44,12 +44,12 @@ describe('FileIndexManager', () => {
         const manager = new FileIndexManager(testDir)
         await manager.build()
 
-        // "uniquetoken" initially absent
-        expect(manager.search('uniquetoken').length).toBe(0)
+        // "uniquetoken" initially absent (trigrams extractable, but no file matches)
+        expect(manager.search('uniquetoken')!.length).toBe(0)
 
         // Notify of file change
         manager.onFileChanged(join(testDir, 'src', 'hello.ts'), 'export const uniquetoken = 1')
-        expect(manager.search('uniquetoken').some(f => f.endsWith('hello.ts'))).toBe(true)
+        expect(manager.search('uniquetoken')!.some(f => f.endsWith('hello.ts'))).toBe(true)
     })
 
     it('should skip node_modules and .git directories', async () => {
@@ -60,15 +60,18 @@ describe('FileIndexManager', () => {
 
         const manager = new FileIndexManager(testDir)
         await manager.build()
-        expect(manager.search('special_marker_nm').length).toBe(0)
-        expect(manager.search('special_marker_git').length).toBe(0)
+        // Files are in ignored dirs, so not indexed → empty result (trigrams are extractable)
+        expect(manager.search('special_marker_nm')!.length).toBe(0)
+        expect(manager.search('special_marker_git')!.length).toBe(0)
     })
 
     it('should skip binary-like files', async () => {
         writeFileSync(join(testDir, 'image.png'), 'should_not_index_png')
         const manager = new FileIndexManager(testDir)
         await manager.build()
-        expect(manager.search('should_not_index_png').length).toBe(0)
+        // "should_not_index_png" is long enough for trigrams, but file is in ignored extensions
+        // The file won't be indexed, so query returns empty array (not null, since trigrams are extractable)
+        expect(manager.search('should_not_index_png')!.length).toBe(0)
     })
 
     it('should report isReady after build', async () => {
