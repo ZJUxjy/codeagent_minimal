@@ -29,15 +29,12 @@ export const grepTool: Tool = {
 
         const args = buildGrepArgs({ pattern, ignoreCase, context, globPattern })
 
-        if (useIndexedSearch) {
-            const filtered = candidates!.filter(f => f === searchPath || f.startsWith(searchPath + '/'))
-            if (filtered.length > 0) {
-                args.push(...filtered)
-            } else {
-                args.push("-r")
-                for (const dir of IGNORED_DIRS) args.push("--exclude-dir=" + dir)
-                args.push(searchPath)
-            }
+        const filtered = useIndexedSearch
+            ? candidates!.filter(f => f === searchPath || f.startsWith(searchPath + '/'))
+            : null
+
+        if (filtered && filtered.length > 0) {
+            args.push(...filtered)
         } else {
             args.push("-r")
             for (const dir of IGNORED_DIRS) args.push("--exclude-dir=" + dir)
