@@ -1,2 +1,5 @@
 export type { Skill, SkillLoadResult } from './types.js'
 export { loadSkills } from './loader.js'
+export type { InstalledPackage, Registry } from './registry.js'
+export { readRegistry, writeRegistry, getPackage } from './registry.js'
+export { installPackage, uninstallPackage, updatePackage } from './installer.js'

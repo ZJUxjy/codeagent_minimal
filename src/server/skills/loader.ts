@@ -5,6 +5,7 @@ import * as path from "path"
 import { parse as parseYaml } from "yaml"
 import type { LopConfig } from "../../protocol/types.js"
 import type { Skill, SkillLoadResult } from "./types.js"
+import { readRegistry } from "./registry.js"
 
 const ROOT_DIR = ".lop"
 const SKILLS_DIR = "skills"
@@ -139,7 +140,20 @@ export async function loadSkills(cwd: string, config?: LopConfig): Promise<Skill
     const skills: Skill[] = []
     const byName = new Set<string>()
 
-    for (const discoveryPath of buildDiscoveryPaths(cwd, config)) {
+    // Installed packages (lowest priority — appended after static paths)
+    const registryPaths: string[] = []
+    try {
+        const registry = await readRegistry()
+        for (const pkg of registry.packages) {
+            registryPaths.push(path.join(pkg.sourcePath, pkg.skillsDir))
+        }
+    } catch {
+        // Registry errors are non-fatal
+    }
+
+    const allPaths = [...buildDiscoveryPaths(cwd, config), ...registryPaths]
+
+    for (const discoveryPath of allPaths) {
         let skillDirs: string[] = []
         try {
             skillDirs = await listSkillDirectories(discoveryPath)
