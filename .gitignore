@@ -13,3 +13,4 @@ benchmark/__pycache__/
 benchmark/data/
 configs
 debug
+__pycache__

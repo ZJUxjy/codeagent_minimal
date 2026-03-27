@@ -25,6 +25,8 @@ async function main() {
       cliOptions.cwd = args[++i];
     } else if (arg === '--theme') {
       cliOptions.theme = args[++i] as TuiThemeId;
+    } else if (arg === '-r' || arg === '--resume') {
+      cliOptions.resume = true;
     }
   }
 
@@ -37,6 +39,8 @@ async function main() {
     theme: cliOptions.theme,
     mcpServers: fileConfig.mcpServers,
     mcp: fileConfig.mcp,
+    resume: cliOptions.resume,
+    persistence: fileConfig.persistence,
   };
 
   // 启动 TUI

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Client, type ClientOptions, type ClientEvent } from '../../client/index.js'
+import { FileStore } from '../../server/stores/FileStore.js'
 
 export interface UseClientOptions extends ClientOptions {
     onEvent?: (event: ClientEvent) => void
@@ -9,6 +10,7 @@ export function useClient(options: UseClientOptions) {
     const [client, setClient] = useState<Client | null>(null);
     const [isReady, setIsReady] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [sessionId, setSessionId] = useState<string | null>(null);
 
     // 提取 onEvent 避免 useEffect 依赖频繁变化
     const onEventRef = useRef(options.onEvent);
@@ -20,7 +22,19 @@ export function useClient(options: UseClientOptions) {
         const clientInstance = new Client(options);
 
         clientInstance.initialize()
-            .then(() => {
+            .then(async (result) => {
+                setSessionId(result.sessionId ?? null);
+
+                // --resume flag: auto-load latest session
+                if (options.resume) {
+                    const cwd = options.cwd ?? process.cwd();
+                    const sessions = FileStore.listSessions(cwd);
+                    if (sessions.length > 0) {
+                        const loadResult = await clientInstance.loadSession(sessions[0].sessionId);
+                        setSessionId(loadResult.sessionId);
+                    }
+                }
+
                 // 注册事件处理器
                 if (onEventRef.current) {
                     clientInstance.onEvent(onEventRef.current);
@@ -43,8 +57,6 @@ export function useClient(options: UseClientOptions) {
         client,
         isReady,
         error,
+        sessionId,
     };
 }
-
-
-

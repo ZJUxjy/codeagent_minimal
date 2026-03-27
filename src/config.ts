@@ -25,6 +25,8 @@ function normalizeConfig(config: any): LopConfig {
         // MCP 配置
         mcpServers: parsed.mcpServers,
         mcp: parsed.mcp,
+        // 会话持久化
+        persistence: config.persistence,
     }
 }
 
@@ -84,6 +86,7 @@ export function mergeConfig(options: {
         debug: options.cli?.debug ?? options.env?.debug ?? options.file?.debug,
         mcpServers: options.file?.mcpServers,
         mcp: options.file?.mcp,
+        persistence: options.file?.persistence,
     }
 }
 

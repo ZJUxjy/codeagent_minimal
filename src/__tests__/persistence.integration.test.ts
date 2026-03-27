@@ -34,8 +34,8 @@ describe('Persistence Integration', () => {
     const store1 = new FileStore('session-first', cwd, tempDir);
     store1.add({ role: 'user', content: 'First session' });
 
-    // 等待 2ms 保证 mtime 不同
-    await new Promise(r => setTimeout(r, 2));
+    // 等待 100ms 保证 mtime 不同
+    await new Promise(r => setTimeout(r, 100));
 
     const store2 = new FileStore('session-second', cwd, tempDir);
     store2.add({ role: 'user', content: 'Second session' });

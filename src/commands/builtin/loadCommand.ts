@@ -1,16 +1,21 @@
 import { CommandKind, type SlashCommand, type CommandContext, type SlashCommandActionReturn } from '../types.js'
+import { FileStore } from '../../server/stores/FileStore.js'
 
 export const loadCommand: SlashCommand = {
   name: 'load',
   altNames: ['resume'],
-  description: 'Load a previous session by ID. Usage: /load <sessionId>',
+  description: 'Load a previous session by ID (or latest if no ID given). Usage: /load [sessionId]',
   kind: CommandKind.BUILT_IN,
 
   action: async (context: CommandContext, args: string): Promise<SlashCommandActionReturn> => {
-    const sessionId = args.trim()
+    let sessionId = args.trim()
 
     if (!sessionId) {
-      return { type: 'message', content: 'Usage: /load <sessionId>\nUse /sessions to list available sessions.', isError: true }
+      const sessions = FileStore.listSessions(context.config.cwd)
+      if (sessions.length === 0) {
+        return { type: 'message', content: 'No saved sessions to resume.', isError: true }
+      }
+      sessionId = sessions[0].sessionId
     }
 
     if (!context.client) {

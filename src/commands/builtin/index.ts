@@ -7,6 +7,7 @@ export { themeCommand } from './themeCommand.js'
 export { mcpCommand } from './mcpCommand.js'
 export { sessionsCommand } from './sessionsCommand.js'
 export { loadCommand } from './loadCommand.js'
+export { deleteCommand } from './deleteCommand.js'
 
 // 所有内置命令列表
 import { helpCommand } from './helpCommand.js'
@@ -17,6 +18,7 @@ import { themeCommand } from './themeCommand.js'
 import { mcpCommand } from './mcpCommand.js'
 import { sessionsCommand } from './sessionsCommand.js'
 import { loadCommand } from './loadCommand.js'
+import { deleteCommand } from './deleteCommand.js'
 import type { SlashCommand } from '../types.js'
 
 export const allBuiltinCommands: SlashCommand[] = [
@@ -28,4 +30,5 @@ export const allBuiltinCommands: SlashCommand[] = [
     mcpCommand,
     sessionsCommand,
     loadCommand,
+    deleteCommand,
 ]

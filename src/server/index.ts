@@ -4,6 +4,7 @@ import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
 import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 import { FileStore } from "./stores/FileStore.js"
+import { cleanupOldSessions } from "./stores/sessionCleanup.js"
 import type { MessageStore } from "./store.js"
 import { QuestionBridge } from "./questionBridge.js"
 import { AskQuestionResponseParamsSchema } from "../protocol/types.js"
@@ -12,6 +13,32 @@ let agent: Agent | null = null
 let currentCwd = process.cwd()
 let currentAbortController: AbortController | null = null
 let questionBridge: QuestionBridge | null = null
+
+function isPersistenceEnabled(): boolean {
+    const env = process.env.LOP_PERSISTENCE
+    if (env === 'false' || env === '0') return false
+    if (env) {
+        try {
+            const parsed = JSON.parse(env)
+            return parsed.enabled !== false
+        } catch {}
+    }
+    return true  // default on
+}
+
+function getPersistenceConfig(): { maxAgeMs?: number; maxCount?: number } {
+    const env = process.env.LOP_PERSISTENCE
+    if (!env) return {}
+    try {
+        const parsed = JSON.parse(env)
+        return {
+            maxAgeMs: parsed.maxAgeDays != null ? parsed.maxAgeDays * 24 * 60 * 60 * 1000 : undefined,
+            maxCount: parsed.maxSessions,
+        }
+    } catch {
+        return {}
+    }
+}
 
 function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
     const config: AgentConfig["mcpConfig"] = {}
@@ -67,11 +94,21 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
     switch (method) {
         case "initialize": {
             let store: MessageStore | undefined
-            if (process.env.LOP_PERSISTENCE === "true") {
+            if (isPersistenceEnabled()) {
                 store = FileStore.createSession(currentCwd)
                 debugLog("server", `Persistence enabled, session: ${(store as FileStore).getSessionId()}`)
             }
             const config = buildServerAgentConfig(currentCwd, store)
+            if (store) {
+                (store as FileStore).setMeta(config.provider, config.model)
+                // Fire-and-forget cleanup of old sessions
+                try {
+                    const deleted = cleanupOldSessions(currentCwd, getPersistenceConfig())
+                    if (deleted > 0) debugLog("server", `Cleaned up ${deleted} old session(s)`)
+                } catch (e) {
+                    debugLog("server", "Session cleanup failed:", e)
+                }
+            }
 
             debugLog("server", `Config: provider=${config.provider}, model=${config.model}`)
             debugLog("server", `API Key: ${config.apiKey?.slice(0, 10)}...`)
@@ -89,6 +126,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             sendResponse(requestId, {
                 serverInfo: { name: "lop_minimal_server", version: "0.1.0" },
                 capabilities: {},
+                sessionId: store ? (store as FileStore).getSessionId() : null,
             })
             break
         }
@@ -205,6 +243,21 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             }
             agent.replaceStore(loadedStore)
             sendResponse(requestId, { sessionId, messageCount: loadedStore.getMessageCount() })
+            break
+        }
+
+        case "delete_session": {
+            const { sessionId } = params as { sessionId: string }
+            if (!sessionId) {
+                sendError(requestId, -32602, "sessionId is required")
+                return
+            }
+            const deleted = FileStore.deleteSession(sessionId, currentCwd)
+            if (!deleted) {
+                sendError(requestId, -32001, `Session not found: ${sessionId}`)
+                return
+            }
+            sendResponse(requestId, { deleted: true })
             break
         }
 

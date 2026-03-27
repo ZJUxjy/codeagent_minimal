@@ -208,7 +208,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         }
     }, [])
 
-    const { client, isReady, error } = useClient({
+    const { client, isReady, error, sessionId } = useClient({
         ...clientOptions,
         onEvent: handleEvent,
     })
@@ -325,6 +325,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     <Header
                         model={clientOptions.model ?? 'unknown'}
                         provider={clientOptions.provider ?? 'unknown'}
+                        sessionId={sessionId}
                     />
                     <Box marginTop={0}>
                         <InitErrorText message={error} />
@@ -332,10 +333,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 </Box>
             ) : (
                 <Box flexDirection="column" padding={0} marginBottom={0}>
-                    <Header
-                        model={clientOptions.model ?? 'unknown'}
-                        provider={clientOptions.provider ?? 'unknown'}
-                    />
+                    <Header {...{ model: clientOptions.model ?? 'unknown', provider: clientOptions.provider ?? 'unknown', sessionId }} />
                     <MessageList
                         key={resizeKey}
                         messages={messages}

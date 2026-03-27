@@ -21,6 +21,10 @@ export interface ClientOptions {
   /** MCP server 配置 */
   mcpServers?: LopConfig["mcpServers"]
   mcp?: LopConfig["mcp"]
+  /** 启动时自动恢复最近会话 */
+  resume?: boolean
+  /** 会话持久化配置 */
+  persistence?: { enabled?: boolean }
 }
 
 export type ClientEvent =
@@ -38,6 +42,7 @@ export class Client {
   private pendingRequests = new Map<number, { resolve: Function; reject: Function }>()
   private eventHandler?: (event: ClientEvent) => void
   private debug: boolean
+  private currentSessionId: string | null = null
 
   constructor(options: ClientOptions = {}) {
     this.debug = options.debug ?? false
@@ -49,6 +54,7 @@ export class Client {
     if (this.debug) env.LOP_DEBUG = "true"
     if (options.mcpServers) env.LOP_MCP_SERVERS = JSON.stringify(options.mcpServers)
     if (options.mcp) env.LOP_MCP = JSON.stringify(options.mcp)
+    if (options.persistence) env.LOP_PERSISTENCE = JSON.stringify(options.persistence)
 
     if (this.debug) {
       if (options.apiKey) {
@@ -151,10 +157,16 @@ export class Client {
   }
 
   /** 初始化连接 */
-  async initialize(): Promise<void> {
-    await this.sendRequest("initialize", {
+  async initialize(): Promise<{ sessionId: string | null }> {
+    const result = await this.sendRequest<{ sessionId: string | null }>("initialize", {
       clientInfo: { name: "lop_minimal_cli", version: "0.1.0" },
     })
+    this.currentSessionId = result.sessionId ?? null
+    return result
+  }
+
+  getSessionId(): string | null {
+    return this.currentSessionId
   }
 
   /** 设置事件处理器 */
@@ -195,6 +207,11 @@ export class Client {
   /** 加载历史会话（替换当前 Agent store） */
   async loadSession(sessionId: string): Promise<{ sessionId: string; messageCount: number }> {
     return this.sendRequest('load_session', { sessionId })
+  }
+
+  /** 删除历史会话 */
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.sendRequest('delete_session', { sessionId })
   }
 
   /** 关闭客户端 */

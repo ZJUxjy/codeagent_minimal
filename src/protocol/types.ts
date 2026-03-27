@@ -162,6 +162,8 @@ export interface LopConfig {
     // 新增：会话持久化开关
     persistence?: {
         enabled?: boolean
+        maxAgeDays?: number
+        maxSessions?: number
     }
 }
 
