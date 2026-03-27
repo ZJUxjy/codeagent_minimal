@@ -22,11 +22,12 @@ export const sessionsCommand: SlashCommand = {
       ...sessions.map((s, i) => {
         const timeStr = formatRelativeTime(s.mtime)
         const modelStr = s.model ? ` | ${s.provider}/${s.model}` : ''
-        const preview = s.preview ? ` — "${s.preview}"` : ''
-        return `${i + 1}. ${s.sessionId.slice(0, 8)} (${timeStr}, ${s.messageCount} msgs)${modelStr}${preview}`
+        const label = s.title ? `"${s.title}"` : s.preview ? `"${s.preview}"` : ''
+        const labelStr = label ? ` — ${label}` : ''
+        return `${i + 1}. ${s.sessionId.slice(0, 8)} (${timeStr}, ${s.messageCount} msgs)${modelStr}${labelStr}`
       }),
       '',
-      'Use /load [sessionId] to resume a session.',
+      'Use /load [sessionId] to resume, /rename <sessionId> <title> to name, /delete <sessionId> to remove.',
     ]
 
     return { type: 'message', content: lines.join('\n') }

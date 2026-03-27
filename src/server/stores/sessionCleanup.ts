@@ -14,7 +14,7 @@ export function cleanupOldSessions(
   let deleted = 0
 
   for (let i = 0; i < sessions.length; i++) {
-    if (i >= maxCount || sessions[i].mtime.getTime() < cutoff) {
+    if (i >= maxCount || sessions[i].mtime.getTime() <= cutoff) {
       FileStore.deleteSession(sessions[i].sessionId, cwd, sessionDir)
       deleted++
     }

@@ -5,7 +5,10 @@ import { join } from 'path';
 import type { MessageStore } from '../store.js';
 import { readLinesSync, writeLineSync } from '../utils/jsonl.js';
 import { generateSessionId, getSessionDir, listSessionIds } from '../utils/storagePath.js';
-import type { SessionInfo, SessionRecord } from './types.js';
+import type { SessionInfo, SessionRecord, SessionMeta } from './types.js';
+import { SessionIndex } from './SessionIndex.js';
+
+const MAX_PREVIEW_LENGTH = 60;
 
 export class FileStore implements MessageStore {
   private records: SessionRecord[] = [];
@@ -13,6 +16,7 @@ export class FileStore implements MessageStore {
   private sessionId: string;
   private cwd: string;
   private lastUuid: string | null = null;
+  private sessionDir: string;
 
   /**
    * @param sessionId  会话唯一标识
@@ -22,8 +26,8 @@ export class FileStore implements MessageStore {
   constructor(sessionId: string, cwd: string, sessionDir?: string) {
     this.sessionId = sessionId;
     this.cwd = cwd;
-    const dir = sessionDir ?? getSessionDir(cwd);
-    this.filePath = join(dir, `${sessionId}.jsonl`);
+    this.sessionDir = sessionDir ?? getSessionDir(cwd);
+    this.filePath = join(this.sessionDir, `${sessionId}.jsonl`);
     this.loadFromDisk();
   }
 
@@ -48,6 +52,29 @@ export class FileStore implements MessageStore {
     this.records.push(record);
     this.lastUuid = uuid;
     writeLineSync(this.filePath, record);
+
+    const index = new SessionIndex(this.sessionDir);
+    const existing = index.getSession(this.sessionId);
+    const messageCount = this.records.filter(r => r.type !== 'meta').length;
+    if (existing) {
+      const updates: Partial<SessionMeta> = { messageCount, updatedAt: record.timestamp };
+      if (!existing.preview && message.role === 'user') {
+        updates.preview = String(message.content).slice(0, MAX_PREVIEW_LENGTH);
+      }
+      index.updateSession(this.sessionId, updates);
+    } else {
+      const preview = message.role === 'user'
+        ? String(message.content).slice(0, MAX_PREVIEW_LENGTH)
+        : null;
+      index.addSession({
+        sessionId: this.sessionId,
+        title: null,
+        messageCount,
+        createdAt: record.timestamp,
+        updatedAt: record.timestamp,
+        preview,
+      });
+    }
   }
 
   getAll(): CoreMessage[] {
@@ -61,6 +88,8 @@ export class FileStore implements MessageStore {
     if (existsSync(this.filePath)) {
       writeFileSync(this.filePath, '');
     }
+    const index = new SessionIndex(this.sessionDir);
+    index.updateSession(this.sessionId, { messageCount: 0, updatedAt: new Date().toISOString() });
   }
 
   getSessionId(): string {
@@ -79,11 +108,12 @@ export class FileStore implements MessageStore {
 
   /** Write a metadata record (provider/model) at the start of the session file. */
   setMeta(provider: string, model: string): void {
+    const timestamp = new Date().toISOString();
     const record: SessionRecord = {
       uuid: randomUUID(),
       parentUuid: null,
       sessionId: this.sessionId,
-      timestamp: new Date().toISOString(),
+      timestamp,
       type: 'meta',
       cwd: this.cwd,
       message: null,
@@ -94,37 +124,74 @@ export class FileStore implements MessageStore {
     for (const r of this.records) {
       writeLineSync(this.filePath, r);
     }
-  }
 
-  /** 列出指定目录的所有会话，按最后修改时间倒序 */
-  static listSessions(cwd: string, sessionDir?: string): SessionInfo[] {
-    const dir = sessionDir ?? getSessionDir(cwd);
-    const results: SessionInfo[] = [];
-    for (const id of listSessionIds(dir)) {
-      const filePath = join(dir, `${id}.jsonl`);
-      let stats: ReturnType<typeof statSync>;
-      let records: SessionRecord[];
-      try {
-        stats = statSync(filePath);
-        records = readLinesSync<SessionRecord>(filePath);
-      } catch {
-        continue;
-      }
-      const metaRecord = records.find(r => r.type === 'meta');
-      const userRecords = records.filter(r => r.type === 'user');
-      const firstUser = userRecords[0];
-      const preview = firstUser ? String(firstUser.message!.content).slice(0, 60) : undefined;
-      results.push({
-        sessionId: id,
-        mtime: stats.mtime,
-        messageCount: userRecords.length,
-        preview,
-        startTime: records[0]?.timestamp,
-        model: metaRecord?.meta?.model,
-        provider: metaRecord?.meta?.provider,
+    const index = new SessionIndex(this.sessionDir);
+    const existing = index.getSession(this.sessionId);
+    if (existing) {
+      index.updateSession(this.sessionId, { model, provider });
+    } else {
+      index.addSession({
+        sessionId: this.sessionId,
+        title: null,
+        messageCount: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        preview: null,
+        model,
+        provider,
       });
     }
-    return results.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  }
+
+  /** 列出所有会话，优先读 SessionIndex（O(1)），回退时扫描 JSONL 重建索引 */
+  static listSessions(cwd: string, sessionDir?: string): SessionInfo[] {
+    const dir = sessionDir ?? getSessionDir(cwd);
+    const index = new SessionIndex(dir);
+    let sessions = index.listSessions();
+
+    if (sessions.length === 0) {
+      // Rebuild index from JSONL files (backward compatibility / first run)
+      const ids = listSessionIds(dir);
+      if (ids.length === 0) return [];
+
+      for (const id of ids) {
+        const filePath = join(dir, `${id}.jsonl`);
+        let stats: ReturnType<typeof statSync>;
+        let records: SessionRecord[];
+        try {
+          stats = statSync(filePath);
+          records = readLinesSync<SessionRecord>(filePath);
+        } catch {
+          continue;
+        }
+        if (records.length === 0) continue;
+        const metaRecord = records.find(r => r.type === 'meta');
+        const firstUser = records.find(r => r.type === 'user');
+        const preview = firstUser ? String(firstUser.message!.content).slice(0, MAX_PREVIEW_LENGTH) : null;
+        index.addSession({
+          sessionId: id,
+          title: null,
+          messageCount: records.filter(r => r.type !== 'meta').length,
+          createdAt: records[0].timestamp,
+          updatedAt: stats.mtime.toISOString(),
+          preview,
+          model: metaRecord?.meta?.model ?? null,
+          provider: metaRecord?.meta?.provider ?? null,
+        });
+      }
+      sessions = index.listSessions();
+    }
+
+    return sessions.map(m => ({
+      sessionId: m.sessionId,
+      mtime: new Date(m.updatedAt),
+      messageCount: m.messageCount,
+      preview: m.preview ?? undefined,
+      title: m.title ?? undefined,
+      startTime: m.createdAt,
+      model: m.model ?? undefined,
+      provider: m.provider ?? undefined,
+    }));
   }
 
   /** 加载已有会话（从默认路径） */
@@ -137,16 +204,17 @@ export class FileStore implements MessageStore {
     return new FileStore(generateSessionId(), cwd);
   }
 
-  /** Delete a session's JSONL file. Returns true if file existed. */
+  /** Delete a session's JSONL file and remove from index. Returns true if existed. */
   static deleteSession(sessionId: string, cwd: string, sessionDir?: string): boolean {
     const dir = sessionDir ?? getSessionDir(cwd);
     const filePath = join(dir, `${sessionId}.jsonl`);
     try {
       unlinkSync(filePath);
-      return true;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
       throw err;
     }
+    new SessionIndex(dir).removeSession(sessionId);
+    return true;
   }
 }
