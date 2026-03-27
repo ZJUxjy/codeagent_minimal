@@ -32,6 +32,7 @@ export const editTool: Tool = {
 
             const newContent = content.replace(old_string, new_string)
             await writeFile(fullPath, newContent, "utf-8")
+            ctx.fileIndex?.onFileChanged(fullPath, newContent)
 
             return `Successfully edited ${fullPath}`
         } catch (error: any) {

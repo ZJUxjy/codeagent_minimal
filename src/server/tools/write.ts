@@ -22,6 +22,7 @@ export const writeTool: Tool = {
             // 确保目录存在
             await mkdir(dirname(fullPath), { recursive: true })
             await writeFile(fullPath, content, "utf-8")
+            ctx.fileIndex?.onFileChanged(fullPath, content)
             return `Successfully wrote ${content.length} characters to ${fullPath}`
         } catch (error: any) {
             return `Error: ${error.message}`

@@ -11,6 +11,7 @@ import { evaluateToolPolicy } from "./security/policy.js"
 import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
 import { truncateMessages } from "./utils/truncateMessages.js"
+import { FileIndexManager } from "./indexing/fileIndexManager.js"
 
 export interface AgentConfig {
     provider: Provider
@@ -51,6 +52,7 @@ export class Agent {
     private readonly snapshot: AgentConfigSnapshot
     private questionBridge?: QuestionBridge
     private activeSignal?: AbortSignal
+    private fileIndex: FileIndexManager
 
     constructor(config: AgentConfig) {
         const { store, tools, mcpConfig, maxTurns, hooks, questionBridge, ...snapshot } = config
@@ -78,6 +80,10 @@ export class Agent {
         if (!config.tools) {
             this.registerDelegationTool()
         }
+        this.fileIndex = new FileIndexManager(config.cwd)
+        this.fileIndex.build().catch(() => {
+            // Index build failure doesn't affect normal operation; grep falls back to full scan
+        })
     }
 
     /** Parameters for constructing a child agent (shared LLM settings, cwd, hooks, mcp). */
@@ -273,6 +279,7 @@ export class Agent {
             askQuestion: this.questionBridge
                 ? (questions: Question[]) => this.questionBridge!.ask(questions, this.activeSignal)
                 : undefined,
+            fileIndex: this.fileIndex,
         }
 
         try {
