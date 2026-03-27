@@ -34,10 +34,23 @@ function parseFrontmatter(markdown: string): ParsedFrontmatter {
 
     const parsed: ParsedFrontmatter = { disableModelInvocation: false }
 
-    // TODO(human): rewrite this loop to support block scalar ("|") for multi-line values.
-    // When valueRaw === "|", subsequent lines indented with 2+ spaces belong to that value.
-    // Strip the common 2-space indent, join with "\n", trim trailing blank lines.
-    for (const rawLine of lines.slice(1, end)) {
+    let i = 0
+    let blockKey: string | null = null
+    const blockLines: string[] = []
+
+    while (++i < end) {
+        const rawLine = lines[i]
+
+        if (blockKey !== null) {
+            if (rawLine.length > 0 && rawLine[0] === ' ') {
+                blockLines.push(rawLine.slice(2))
+                continue
+            }
+            parsed[blockKey as keyof ParsedFrontmatter] = blockLines.join("\n").trimEnd() as never
+            blockKey = null
+            blockLines.length = 0
+        }
+
         const line = rawLine.trim()
         if (!line || line.startsWith("#")) continue
 
@@ -46,6 +59,12 @@ function parseFrontmatter(markdown: string): ParsedFrontmatter {
 
         const key = line.slice(0, idx).trim().toLowerCase()
         const valueRaw = line.slice(idx + 1).trim()
+
+        if (valueRaw === "|") {
+            blockKey = key
+            continue
+        }
+
         const value = valueRaw.replace(/^['\"]|['\"]$/g, "")
 
         if (key === "name") {
@@ -55,6 +74,10 @@ function parseFrontmatter(markdown: string): ParsedFrontmatter {
         } else if (key === "disable-model-invocation") {
             parsed.disableModelInvocation = value.toLowerCase() === "true"
         }
+    }
+
+    if (blockKey !== null) {
+        parsed[blockKey as keyof ParsedFrontmatter] = blockLines.join("\n").trimEnd() as never
     }
 
     return parsed
