@@ -42,40 +42,25 @@ async function detectSkillsDir(sourcePath: string): Promise<string> {
     throw new Error("No skill packages found in the repository (expected a skills/ directory or root-level skill directories)")
 }
 
-// TODO(human): implement installPackage(url: string): Promise<InstalledPackage>
-//
-// Steps:
-//   1. Derive name from URL via nameFromUrl(url)
-//   2. Read registry — throw if name already installed
-//   3. Compute destPath = path.join(SOURCES_DIR, name)
-//      Throw if destPath already exists on disk (partial install)
-//   4. fs.mkdir(SOURCES_DIR, { recursive: true })
-//   5. git(["clone", url, destPath]) — this is the slow step
-//   6. detectSkillsDir(destPath) to find where skills live
-//   7. Build InstalledPackage, push to registry.packages, writeRegistry
-//   8. Return the InstalledPackage
-export async function installPackage(_url: string): Promise<InstalledPackage> {
-    // throw new Error("Not yet implemented")
-    const name = nameFromUrl(_url)
+export async function installPackage(url: string): Promise<InstalledPackage> {
+    const name = nameFromUrl(url)
     const registry = await readRegistry()
-    if (getPackage(registry,name)){
-        throw new Error(`Package '${name}' already installed!`)
+    if (getPackage(registry, name)) {
+        throw new Error(`Package '${name}' is already installed`)
     }
     const destPath = path.join(SOURCES_DIR, name)
     if (existsSync(destPath)) {
-        // already install
-        // remove destPath
-        await fs.rm(destPath,{ recursive: true ,force: true})
+        await fs.rm(destPath, { recursive: true, force: true })
     }
-    await fs.mkdir(SOURCES_DIR,{recursive:true})
-    await git(["clone",_url,destPath])
+    await fs.mkdir(SOURCES_DIR, { recursive: true })
+    await git(["clone", url, destPath])
     const skillsDir = await detectSkillsDir(destPath)
-    const pkg:InstalledPackage = {
+    const pkg: InstalledPackage = {
         name,
-        url:_url,
-        installedAt:new Date().toISOString(),
-        sourcePath:destPath,
-        skillsDir
+        url,
+        installedAt: new Date().toISOString(),
+        sourcePath: destPath,
+        skillsDir,
     }
     registry.packages.push(pkg)
     await writeRegistry(registry)
