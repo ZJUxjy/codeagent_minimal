@@ -55,7 +55,31 @@ async function detectSkillsDir(sourcePath: string): Promise<string> {
 //   7. Build InstalledPackage, push to registry.packages, writeRegistry
 //   8. Return the InstalledPackage
 export async function installPackage(_url: string): Promise<InstalledPackage> {
-    throw new Error("Not yet implemented")
+    // throw new Error("Not yet implemented")
+    const name = nameFromUrl(_url)
+    const registry = await readRegistry()
+    if (getPackage(registry,name)){
+        throw new Error(`Package '${name}' already installed!`)
+    }
+    const destPath = path.join(SOURCES_DIR, name)
+    if (existsSync(destPath)) {
+        // already install
+        // remove destPath
+        await fs.rm(destPath,{ recursive: true ,force: true})
+    }
+    await fs.mkdir(SOURCES_DIR,{recursive:true})
+    await git(["clone",_url,destPath])
+    const skillsDir = await detectSkillsDir(destPath)
+    const pkg:InstalledPackage = {
+        name,
+        url:_url,
+        installedAt:new Date().toISOString(),
+        sourcePath:destPath,
+        skillsDir
+    }
+    registry.packages.push(pkg)
+    await writeRegistry(registry)
+    return pkg
 }
 
 export async function uninstallPackage(name: string): Promise<void> {
