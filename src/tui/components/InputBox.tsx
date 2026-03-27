@@ -127,9 +127,11 @@ export const InputBox = ({ onSubmit, onClear, onInterrupt, disabled, commands = 
                     offset += col
                     const currentText = buffer.text
                     for (const placeholder of pendingPastes.keys()) {
-                        const placeholderStart = offset - placeholder.length
-                        if (placeholderStart >= 0 && currentText.slice(placeholderStart, offset) === placeholder) {
-                            buffer.replaceRangeByOffset(placeholderStart, offset, '')
+                        const placeholderStart = currentText.indexOf(placeholder)
+                        if (placeholderStart === -1) continue
+                        const placeholderEnd = placeholderStart + placeholder.length
+                        if (offset > placeholderStart && offset <= placeholderEnd) {
+                            buffer.replaceRangeByOffset(placeholderStart, placeholderEnd, '')
                             setPendingPastes(prev => {
                                 const next = new Map(prev)
                                 next.delete(placeholder)
@@ -142,6 +144,30 @@ export const InputBox = ({ onSubmit, onClear, onInterrupt, disabled, commands = 
                 }
                 buffer.backspace()
             } else if (key.type === 'forwardDelete') {
+                if (pendingPastes.size > 0) {
+                    const { row, col } = buffer.cursor
+                    let offset = 0
+                    for (let i = 0; i < row; i++) {
+                        offset += buffer.lines[i].length + 1
+                    }
+                    offset += col
+                    const currentText = buffer.text
+                    for (const placeholder of pendingPastes.keys()) {
+                        const placeholderStart = currentText.indexOf(placeholder)
+                        if (placeholderStart === -1) continue
+                        const placeholderEnd = placeholderStart + placeholder.length
+                        if (offset >= placeholderStart && offset < placeholderEnd) {
+                            buffer.replaceRangeByOffset(placeholderStart, placeholderEnd, '')
+                            setPendingPastes(prev => {
+                                const next = new Map(prev)
+                                next.delete(placeholder)
+                                return next
+                            })
+                            freePlaceholderId(placeholder)
+                            return
+                        }
+                    }
+                }
                 buffer.delete()
             }
         }, [buffer, pendingPastes, freePlaceholderId]),
