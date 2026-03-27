@@ -120,14 +120,18 @@ export class Agent {
         return `You have an \`agent\` tool to delegate sub-tasks. Available subagent profiles:\n${lines.join("\n")}`
     }
 
+    private static escapeXml(str: string): string {
+        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+
     private buildSkillsPrompt(skills: Skill[]): string | undefined {
         const enabled = skills.filter((skill) => !skill.disableModelInvocation)
         if (enabled.length === 0) return undefined
 
         const skillItems = enabled.map((skill) => [
             "  <skill>",
-            `    <name>${skill.name}</name>`,
-            `    <description>${skill.description}</description>`,
+            `    <name>${Agent.escapeXml(skill.name)}</name>`,
+            `    <description>${Agent.escapeXml(skill.description)}</description>`,
             `    <location>${skill.filePath}</location>`,
             "  </skill>",
         ].join("\n"))

@@ -34,6 +34,9 @@ function parseFrontmatter(markdown: string): ParsedFrontmatter {
 
     const parsed: ParsedFrontmatter = { disableModelInvocation: false }
 
+    // TODO(human): rewrite this loop to support block scalar ("|") for multi-line values.
+    // When valueRaw === "|", subsequent lines indented with 2+ spaces belong to that value.
+    // Strip the common 2-space indent, join with "\n", trim trailing blank lines.
     for (const rawLine of lines.slice(1, end)) {
         const line = rawLine.trim()
         if (!line || line.startsWith("#")) continue
@@ -90,24 +93,25 @@ async function listSkillDirectories(root: string): Promise<string[]> {
 function buildDiscoveryPaths(cwd: string, config?: LopConfig): string[] {
     const paths: string[] = []
 
-    paths.push(path.join(os.homedir(), ROOT_DIR, SKILLS_DIR))
-
-    const gitRoot = findGitRoot(cwd)
-    if (gitRoot) {
-        paths.push(path.join(gitRoot, ROOT_DIR, SKILLS_DIR))
-    }
-
+    // Custom paths have highest priority (first-discovered wins, so highest priority goes first)
     const envPaths = (process.env.LOP_SKILLS_PATHS ?? "")
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean)
 
     const configPaths = config?.skills?.paths ?? []
-    const customPaths = [...envPaths, ...configPaths]
-
-    for (const customPath of customPaths) {
+    for (const customPath of [...envPaths, ...configPaths]) {
         paths.push(path.resolve(cwd, customPath))
     }
+
+    // Project-level skills override global defaults
+    const gitRoot = findGitRoot(cwd)
+    if (gitRoot) {
+        paths.push(path.join(gitRoot, ROOT_DIR, SKILLS_DIR))
+    }
+
+    // Global user skills have lowest priority
+    paths.push(path.join(os.homedir(), ROOT_DIR, SKILLS_DIR))
 
     // 去重，保持顺序
     return Array.from(new Set(paths))

@@ -66,14 +66,6 @@ function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
 }
 
 
-function getSkillsConfigFromEnv(): LopConfig["skills"] {
-    const paths = (process.env.LOP_SKILLS_PATHS ?? "")
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean)
-
-    return paths.length > 0 ? { paths } : undefined
-}
 
 function buildServerAgentConfig(cwd: string, store?: MessageStore): AgentConfig {
     return {
@@ -127,7 +119,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             debugLog("server", `API Key: ${config.apiKey?.slice(0, 10)}...`)
             debugLog("server", `Base URL: ${config.baseURL}`)
 
-            const skillResult = await loadSkills(currentCwd, { skills: getSkillsConfigFromEnv() })
+            const skillResult = await loadSkills(currentCwd)
             for (const diagnostic of skillResult.diagnostics) {
                 debugLog("skills", diagnostic)
             }
@@ -161,7 +153,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             if (cwd && cwd !== currentCwd) {
                 currentCwd = cwd
                 const config = buildServerAgentConfig(currentCwd)
-                const skillResult = await loadSkills(currentCwd, { skills: getSkillsConfigFromEnv() })
+                const skillResult = await loadSkills(currentCwd)
                 for (const diagnostic of skillResult.diagnostics) {
                     debugLog("skills", diagnostic)
                 }
