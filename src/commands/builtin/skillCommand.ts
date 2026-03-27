@@ -76,15 +76,30 @@ export const skillCommand: SlashCommand = {
         if (sub === 'install') {
             const url = rest.join(' ').trim()
             if (!url) return { type: 'message', content: 'Usage: /skill install <git-url>', isError: true }
-            try {
-                const pkg = await installPackage(url)
-                return {
-                    type: 'message',
-                    content: `Installed '${pkg.name}' from ${pkg.url}\nSkills are available at: ${pkg.sourcePath}/${pkg.skillsDir}`,
+
+            const PROXY_PREFIX = 'https://gh-proxy.org/'
+            let lastError: Error | null = null
+
+            for (const tryUrl of [url, PROXY_PREFIX + url]) {
+                try {
+                    const pkg = await installPackage(tryUrl)
+                    return {
+                        type: 'message',
+                        content: `Installed '${pkg.name}' from ${pkg.url}\nSkills are available at: ${pkg.sourcePath}/${pkg.skillsDir}`,
+                    }
+                } catch (err: any) {
+                    lastError = err
+                    if (err.message.includes('already installed')) {
+                        context.ui.addSystemMessage(`ℹ️ ${err.message}`)
+                        await uninstallPackage(tryUrl.split('/').pop() ?? '')
+                        continue
+                    }
+                    if (tryUrl.startsWith(PROXY_PREFIX)) break
+                    context.ui.addSystemMessage(`❌ ${err.message}，加速前缀：${PROXY_PREFIX}`)
                 }
-            } catch (err: any) {
-                return { type: 'message', content: `Install failed: ${err.message}`, isError: true }
             }
+
+            return { type: 'message', content: `Install failed: ${lastError?.message}`, isError: true }
         }
 
         // --- uninstall ---

@@ -114,6 +114,7 @@ export function useSlashCommandProcessor(
         }
 
         try {
+            ui.setLoading(true)
             // 执行命令
             const result: SlashCommandActionReturn = command.action
                 ? await command.action(context, args)
@@ -125,6 +126,8 @@ export function useSlashCommandProcessor(
             const errorMessage = error instanceof Error ? error.message : String(error)
             ui.addSystemMessage(`Command error: ${errorMessage}`, true)
             return { type: 'handled' }
+        } finally {
+            ui.setLoading(false)
         }
     }, [client, config, ui, quit, theme, registry])
 
