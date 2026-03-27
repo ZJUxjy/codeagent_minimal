@@ -5,6 +5,8 @@ import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 import { FileStore } from "./stores/FileStore.js"
 import { cleanupOldSessions } from "./stores/sessionCleanup.js"
+import { SessionIndex } from "./stores/SessionIndex.js"
+import { getSessionDir } from "./utils/storagePath.js"
 import type { MessageStore } from "./store.js"
 import { QuestionBridge } from "./questionBridge.js"
 import { AskQuestionResponseParamsSchema } from "../protocol/types.js"
@@ -258,6 +260,24 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 return
             }
             sendResponse(requestId, { deleted: true })
+            break
+        }
+
+        case "rename_session": {
+            const { sessionId, title } = params as { sessionId: string; title: string }
+            if (!sessionId || !title) {
+                sendError(requestId, -32602, "sessionId and title are required")
+                return
+            }
+            const dir = getSessionDir(currentCwd)
+            const idx = new SessionIndex(dir)
+            const existing = idx.getSession(sessionId)
+            if (!existing) {
+                sendError(requestId, -32001, `Session not found: ${sessionId}`)
+                return
+            }
+            idx.updateSession(sessionId, { title })
+            sendResponse(requestId, { sessionId, title })
             break
         }
 

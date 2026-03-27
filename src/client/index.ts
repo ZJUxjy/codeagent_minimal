@@ -210,8 +210,13 @@ export class Client {
   }
 
   /** 删除历史会话 */
-  async deleteSession(sessionId: string): Promise<void> {
-    await this.sendRequest('delete_session', { sessionId })
+  async deleteSession(sessionId: string): Promise<{ deleted: boolean }> {
+    return this.sendRequest('delete_session', { sessionId })
+  }
+
+  /** 重命名会话（设置标题） */
+  async renameSession(sessionId: string, title: string): Promise<{ sessionId: string; title: string }> {
+    return this.sendRequest('rename_session', { sessionId, title })
   }
 
   /** 关闭客户端 */

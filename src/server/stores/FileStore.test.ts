@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { FileStore } from './FileStore.js';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -54,6 +54,35 @@ describe('FileStore', () => {
     expect(sessions[0].sessionId).toBe('my-session');
     expect(sessions[0].messageCount).toBe(1);
     expect(sessions[0].preview).toBe('Hi');
+  });
+
+  it('should backfill legacy JSONL sessions when index is already non-empty', () => {
+    const timestamp = new Date().toISOString();
+    const legacyPath = join(tempDir, 'legacy-session.jsonl');
+    writeFileSync(
+      legacyPath,
+      `${JSON.stringify({
+        uuid: 'legacy-1',
+        parentUuid: null,
+        sessionId: 'legacy-session',
+        timestamp,
+        type: 'user',
+        cwd: '/test/cwd',
+        message: { role: 'user', content: 'Legacy hello' },
+      })}\n`,
+    );
+
+    const indexed = new FileStore('indexed-session', '/test/cwd', tempDir);
+    indexed.add({ role: 'user', content: 'Indexed hello' });
+
+    const sessions = FileStore.listSessions('/test/cwd', tempDir);
+    const sessionIds = sessions.map(s => s.sessionId);
+    expect(sessionIds).toContain('indexed-session');
+    expect(sessionIds).toContain('legacy-session');
+
+    const legacy = sessions.find(s => s.sessionId === 'legacy-session');
+    expect(legacy?.messageCount).toBe(1);
+    expect(legacy?.preview).toBe('Legacy hello');
   });
 
   it('getSessionId should return the session id', () => {
