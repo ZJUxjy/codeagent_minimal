@@ -4,7 +4,7 @@ import fg from 'fast-glob'
 import { TrigramIndex } from './trigram.js'
 import { decompose } from './queryDecompose.js'
 
-const IGNORED_DIRS = ['node_modules', '.git', 'dist', '.next', '__pycache__', '.venv']
+export const IGNORED_DIRS = ['node_modules', '.git', 'dist', '.next', '__pycache__', '.venv']
 const IGNORED_EXTENSIONS = new Set([
     '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg', '.webp',
     '.woff', '.woff2', '.ttf', '.eot',
