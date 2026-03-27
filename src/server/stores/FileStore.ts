@@ -164,18 +164,20 @@ export class FileStore implements MessageStore {
   static listSessions(cwd: string, sessionDir?: string): SessionInfo[] {
     const dir = sessionDir ?? getSessionDir(cwd);
     const index = new SessionIndex(dir);
-    const sessions = index.listSessions();
+    const indexedSessions = index.listSessions();
 
-    if (sessions.length > 0) {
-      return sessions.map(metaToInfo);
+    // Backfill index from JSONL files for legacy sessions that are not yet indexed.
+    const ids = listSessionIds(dir);
+    if (ids.length === 0) return indexedSessions.map(metaToInfo);
+
+    const indexedIds = new Set(indexedSessions.map(s => s.sessionId));
+    const missingIds = ids.filter(id => !indexedIds.has(id));
+    if (missingIds.length === 0) {
+      return indexedSessions.map(metaToInfo);
     }
 
-    // Rebuild index from JSONL files (backward compatibility / first run)
-    const ids = listSessionIds(dir);
-    if (ids.length === 0) return [];
-
     const metas: SessionMeta[] = [];
-    for (const id of ids) {
+    for (const id of missingIds) {
       const filePath = join(dir, `${id}.jsonl`);
       let stats: ReturnType<typeof statSync>;
       let records: SessionRecord[];
@@ -203,9 +205,9 @@ export class FileStore implements MessageStore {
       });
     }
 
-    if (metas.length === 0) return [];
+    if (metas.length === 0) return indexedSessions.map(metaToInfo);
     index.bulkAddSessions(metas);
-    return metas
+    return [...indexedSessions, ...metas]
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .map(metaToInfo);
   }
