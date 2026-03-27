@@ -85,7 +85,7 @@ describe("loadSkills", () => {
         const result = await loadSkills(projectDir)
 
         expect(result.skills).toHaveLength(1)
-        expect(result.skills[0].description).toBe("user skill")
+        expect(result.skills[0].description).toBe("project skill")
         expect(result.diagnostics.some((d) => d.includes("duplicate skill name"))).toBe(true)
     })
 

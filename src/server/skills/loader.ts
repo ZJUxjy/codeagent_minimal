@@ -2,6 +2,7 @@ import * as fs from "fs/promises"
 import { existsSync } from "fs"
 import * as os from "os"
 import * as path from "path"
+import { parse as parseYaml } from "yaml"
 import type { LopConfig } from "../../protocol/types.js"
 import type { Skill, SkillLoadResult } from "./types.js"
 
@@ -19,68 +20,24 @@ function parseFrontmatter(markdown: string): ParsedFrontmatter {
         return { disableModelInvocation: false }
     }
 
-    const lines = markdown.split("\n")
-    let end = -1
-    for (let i = 1; i < lines.length; i++) {
-        if (lines[i].trim() === "---") {
-            end = i
-            break
-        }
-    }
-
-    if (end === -1) {
+    const endIndex = markdown.indexOf("\n---", 4)
+    if (endIndex === -1) {
         return { disableModelInvocation: false }
     }
 
-    const parsed: ParsedFrontmatter = { disableModelInvocation: false }
-
-    let i = 0
-    let blockKey: string | null = null
-    const blockLines: string[] = []
-
-    while (++i < end) {
-        const rawLine = lines[i]
-
-        if (blockKey !== null) {
-            if (rawLine.length > 0 && rawLine[0] === ' ') {
-                blockLines.push(rawLine.slice(2))
-                continue
-            }
-            parsed[blockKey as keyof ParsedFrontmatter] = blockLines.join("\n").trimEnd() as never
-            blockKey = null
-            blockLines.length = 0
-        }
-
-        const line = rawLine.trim()
-        if (!line || line.startsWith("#")) continue
-
-        const idx = line.indexOf(":")
-        if (idx < 0) continue
-
-        const key = line.slice(0, idx).trim().toLowerCase()
-        const valueRaw = line.slice(idx + 1).trim()
-
-        if (valueRaw === "|") {
-            blockKey = key
-            continue
-        }
-
-        const value = valueRaw.replace(/^['\"]|['\"]$/g, "")
-
-        if (key === "name") {
-            parsed.name = value
-        } else if (key === "description") {
-            parsed.description = value
-        } else if (key === "disable-model-invocation") {
-            parsed.disableModelInvocation = value.toLowerCase() === "true"
-        }
+    const yamlString = markdown.slice(4, endIndex)
+    let raw: Record<string, unknown> = {}
+    try {
+        raw = (parseYaml(yamlString) as Record<string, unknown>) ?? {}
+    } catch {
+        return { disableModelInvocation: false }
     }
 
-    if (blockKey !== null) {
-        parsed[blockKey as keyof ParsedFrontmatter] = blockLines.join("\n").trimEnd() as never
+    return {
+        name: typeof raw["name"] === "string" ? raw["name"] : undefined,
+        description: typeof raw["description"] === "string" ? raw["description"].trimEnd() : undefined,
+        disableModelInvocation: raw["disable-model-invocation"] === true,
     }
-
-    return parsed
 }
 
 function findGitRoot(startDir: string): string | null {
