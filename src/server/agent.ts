@@ -12,6 +12,7 @@ import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
 import { truncateMessages } from "./utils/truncateMessages.js"
 import { FileIndexManager } from "./indexing/fileIndexManager.js"
+import type { Skill } from "./skills/types.js"
 
 export interface AgentConfig {
     provider: Provider
@@ -29,6 +30,8 @@ export interface AgentConfig {
     maxTurns?: number
     /** Bridge for ask_question tool support. */
     questionBridge?: QuestionBridge
+    /** Pre-loaded skills metadata. */
+    skills?: Skill[]
 }
 
 export type AgentEvent =
@@ -53,6 +56,7 @@ export class Agent {
     private questionBridge?: QuestionBridge
     private activeSignal?: AbortSignal
     private fileIndex: FileIndexManager
+    private readonly skills: Skill[]
 
     constructor(config: AgentConfig) {
         const { store, tools, mcpConfig, maxTurns, hooks, questionBridge, ...snapshot } = config
@@ -77,6 +81,7 @@ export class Agent {
         this.store = config.store ?? new InMemoryStore()
         this.hooks = config.hooks ?? noopHooks
         this.cwd = config.cwd
+        this.skills = config.skills ?? []
         if (!config.tools) {
             this.registerDelegationTool()
         }
@@ -115,6 +120,29 @@ export class Agent {
         return `You have an \`agent\` tool to delegate sub-tasks. Available subagent profiles:\n${lines.join("\n")}`
     }
 
+    private buildSkillsPrompt(skills: Skill[]): string | undefined {
+        const enabled = skills.filter((skill) => !skill.disableModelInvocation)
+        if (enabled.length === 0) return undefined
+
+        const skillItems = enabled.map((skill) => [
+            "  <skill>",
+            `    <name>${skill.name}</name>`,
+            `    <description>${skill.description}</description>`,
+            `    <location>${skill.filePath}</location>`,
+            "  </skill>",
+        ].join("\n"))
+
+        return [
+            "The following skills provide specialized instructions for specific tasks.",
+            "Use the read tool to load a skill when the task matches its description.",
+            "When a skill references relative paths, resolve them against the skill directory.",
+            "",
+            "<available_skills>",
+            skillItems.join("\n"),
+            "</available_skills>",
+        ].join("\n")
+    }
+
     getMcpManager() {
         return this.tools.getMcpManager()
     }
@@ -133,7 +161,11 @@ export class Agent {
         this.activeSignal = signal
         const toolDefs = this.tools.getToolDefinitions()
         const store = this.store
-        const systemPrompt = await this.buildSubagentReminder()
+        const systemParts = [
+            await this.buildSubagentReminder(),
+            this.buildSkillsPrompt(this.skills),
+        ].filter((part): part is string => Boolean(part && part.trim()))
+        const systemPrompt = systemParts.length > 0 ? systemParts.join("\n\n") : undefined
 
         function isAborted(): boolean {
             return Boolean(signal?.aborted)

@@ -1,7 +1,7 @@
 // src/server/index.ts
 import * as readline from "readline"
 import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
-import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
+import type { JsonRpcRequest, JsonRpcNotification, LopConfig } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 import { FileStore } from "./stores/FileStore.js"
 import { cleanupOldSessions } from "./stores/sessionCleanup.js"
@@ -10,6 +10,7 @@ import { getSessionDir } from "./utils/storagePath.js"
 import type { MessageStore } from "./store.js"
 import { QuestionBridge } from "./questionBridge.js"
 import { AskQuestionResponseParamsSchema } from "../protocol/types.js"
+import { loadSkills } from "./skills/index.js"
 
 let agent: Agent | null = null
 let currentCwd = process.cwd()
@@ -64,6 +65,16 @@ function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
     return config
 }
 
+
+function getSkillsConfigFromEnv(): LopConfig["skills"] {
+    const paths = (process.env.LOP_SKILLS_PATHS ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+
+    return paths.length > 0 ? { paths } : undefined
+}
+
 function buildServerAgentConfig(cwd: string, store?: MessageStore): AgentConfig {
     return {
         provider: (process.env.LOP_PROVIDER as AgentConfig["provider"]) ?? "openai",
@@ -116,8 +127,13 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             debugLog("server", `API Key: ${config.apiKey?.slice(0, 10)}...`)
             debugLog("server", `Base URL: ${config.baseURL}`)
 
+            const skillResult = await loadSkills(currentCwd, { skills: getSkillsConfigFromEnv() })
+            for (const diagnostic of skillResult.diagnostics) {
+                debugLog("skills", diagnostic)
+            }
+
             questionBridge = new QuestionBridge(sendNotification)
-            agent = new Agent({ ...config, questionBridge })
+            agent = new Agent({ ...config, skills: skillResult.skills, questionBridge })
 
             if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
                 agent.discoverMcpTools().catch((err) => {
@@ -145,7 +161,11 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             if (cwd && cwd !== currentCwd) {
                 currentCwd = cwd
                 const config = buildServerAgentConfig(currentCwd)
-                agent = new Agent({ ...config, questionBridge: questionBridge! })
+                const skillResult = await loadSkills(currentCwd, { skills: getSkillsConfigFromEnv() })
+                for (const diagnostic of skillResult.diagnostics) {
+                    debugLog("skills", diagnostic)
+                }
+                agent = new Agent({ ...config, skills: skillResult.skills, questionBridge: questionBridge! })
                 if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
                     agent.discoverMcpTools().catch((err) => {
                         debugLog("server", "MCP discovery failed:", err)

@@ -41,6 +41,7 @@ async function main() {
     mcp: fileConfig.mcp,
     resume: cliOptions.resume,
     persistence: fileConfig.persistence,
+    skills: fileConfig.skills,
   };
 
   // 启动 TUI

@@ -11,6 +11,12 @@ const CONFIG_FILES = [
     ".lop.config.json",
 ]
 
+function parseSkillsPathsEnv(raw: string | undefined): string[] | undefined {
+    if (!raw) return undefined
+    const paths = raw.split(",").map((item) => item.trim()).filter(Boolean)
+    return paths.length > 0 ? paths : undefined
+}
+
 /** 标准化配置（统一命名） */
 function normalizeConfig(config: any): LopConfig {
     const parsed = parseMcpConfig(config)
@@ -27,6 +33,8 @@ function normalizeConfig(config: any): LopConfig {
         mcp: parsed.mcp,
         // 会话持久化
         persistence: config.persistence,
+        // 技能配置
+        skills: config.skills,
     }
 }
 
@@ -78,6 +86,12 @@ export function mergeConfig(options: {
     env?: Partial<LopConfig>
     file?: Partial<LopConfig>
 }): LopConfig {
+    const envSkillsPaths = parseSkillsPathsEnv(process.env.LOP_SKILLS_PATHS)
+    const mergedSkillsPaths = options.cli?.skills?.paths
+        ?? options.env?.skills?.paths
+        ?? envSkillsPaths
+        ?? options.file?.skills?.paths
+
     return {
         provider: options.cli?.provider ?? options.env?.provider ?? options.file?.provider,
         model: options.cli?.model ?? options.env?.model ?? options.file?.model,
@@ -87,6 +101,7 @@ export function mergeConfig(options: {
         mcpServers: options.file?.mcpServers,
         mcp: options.file?.mcp,
         persistence: options.file?.persistence,
+        skills: mergedSkillsPaths ? { paths: mergedSkillsPaths } : undefined,
     }
 }
 
