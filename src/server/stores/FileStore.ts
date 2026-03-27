@@ -10,6 +10,24 @@ import { SessionIndex } from './SessionIndex.js';
 
 const MAX_PREVIEW_LENGTH = 60;
 
+/** CoreMessage.content can be a string or structured array; extract as plain text. */
+function contentToPreview(content: CoreMessage['content']): string {
+  return typeof content === 'string' ? content : JSON.stringify(content);
+}
+
+function metaToInfo(m: SessionMeta): SessionInfo {
+  return {
+    sessionId: m.sessionId,
+    mtime: new Date(m.updatedAt),
+    messageCount: m.messageCount,
+    preview: m.preview ?? undefined,
+    title: m.title ?? undefined,
+    startTime: m.createdAt,
+    model: m.model ?? undefined,
+    provider: m.provider ?? undefined,
+  };
+}
+
 export class FileStore implements MessageStore {
   private records: SessionRecord[] = [];
   private filePath: string;
@@ -55,17 +73,16 @@ export class FileStore implements MessageStore {
 
     const index = new SessionIndex(this.sessionDir);
     const existing = index.getSession(this.sessionId);
-    const messageCount = this.records.filter(r => r.type !== 'meta').length;
+    const messageCount = this.getMessageCount();
+    const preview = message.role === 'user'
+      ? contentToPreview(message.content).slice(0, MAX_PREVIEW_LENGTH)
+      : null;
+
     if (existing) {
       const updates: Partial<SessionMeta> = { messageCount, updatedAt: record.timestamp };
-      if (!existing.preview && message.role === 'user') {
-        updates.preview = String(message.content).slice(0, MAX_PREVIEW_LENGTH);
-      }
+      if (!existing.preview && preview) updates.preview = preview;
       index.updateSession(this.sessionId, updates);
     } else {
-      const preview = message.role === 'user'
-        ? String(message.content).slice(0, MAX_PREVIEW_LENGTH)
-        : null;
       index.addSession({
         sessionId: this.sessionId,
         title: null,
@@ -133,7 +150,7 @@ export class FileStore implements MessageStore {
       index.addSession({
         sessionId: this.sessionId,
         title: null,
-        messageCount: 0,
+        messageCount: this.getMessageCount(),
         createdAt: timestamp,
         updatedAt: timestamp,
         preview: null,
@@ -147,51 +164,50 @@ export class FileStore implements MessageStore {
   static listSessions(cwd: string, sessionDir?: string): SessionInfo[] {
     const dir = sessionDir ?? getSessionDir(cwd);
     const index = new SessionIndex(dir);
-    let sessions = index.listSessions();
+    const sessions = index.listSessions();
 
-    if (sessions.length === 0) {
-      // Rebuild index from JSONL files (backward compatibility / first run)
-      const ids = listSessionIds(dir);
-      if (ids.length === 0) return [];
-
-      for (const id of ids) {
-        const filePath = join(dir, `${id}.jsonl`);
-        let stats: ReturnType<typeof statSync>;
-        let records: SessionRecord[];
-        try {
-          stats = statSync(filePath);
-          records = readLinesSync<SessionRecord>(filePath);
-        } catch {
-          continue;
-        }
-        if (records.length === 0) continue;
-        const metaRecord = records.find(r => r.type === 'meta');
-        const firstUser = records.find(r => r.type === 'user');
-        const preview = firstUser ? String(firstUser.message!.content).slice(0, MAX_PREVIEW_LENGTH) : null;
-        index.addSession({
-          sessionId: id,
-          title: null,
-          messageCount: records.filter(r => r.type !== 'meta').length,
-          createdAt: records[0].timestamp,
-          updatedAt: stats.mtime.toISOString(),
-          preview,
-          model: metaRecord?.meta?.model ?? null,
-          provider: metaRecord?.meta?.provider ?? null,
-        });
-      }
-      sessions = index.listSessions();
+    if (sessions.length > 0) {
+      return sessions.map(metaToInfo);
     }
 
-    return sessions.map(m => ({
-      sessionId: m.sessionId,
-      mtime: new Date(m.updatedAt),
-      messageCount: m.messageCount,
-      preview: m.preview ?? undefined,
-      title: m.title ?? undefined,
-      startTime: m.createdAt,
-      model: m.model ?? undefined,
-      provider: m.provider ?? undefined,
-    }));
+    // Rebuild index from JSONL files (backward compatibility / first run)
+    const ids = listSessionIds(dir);
+    if (ids.length === 0) return [];
+
+    const metas: SessionMeta[] = [];
+    for (const id of ids) {
+      const filePath = join(dir, `${id}.jsonl`);
+      let stats: ReturnType<typeof statSync>;
+      let records: SessionRecord[];
+      try {
+        stats = statSync(filePath);
+        records = readLinesSync<SessionRecord>(filePath);
+      } catch {
+        continue;
+      }
+      if (records.length === 0) continue;
+      const metaRecord = records.find(r => r.type === 'meta');
+      const firstUser = records.find(r => r.type === 'user');
+      const preview = firstUser
+        ? contentToPreview(firstUser.message!.content).slice(0, MAX_PREVIEW_LENGTH)
+        : null;
+      metas.push({
+        sessionId: id,
+        title: null,
+        messageCount: records.filter(r => r.type !== 'meta').length,
+        createdAt: records[0].timestamp,
+        updatedAt: stats.mtime.toISOString(),
+        preview,
+        model: metaRecord?.meta?.model ?? null,
+        provider: metaRecord?.meta?.provider ?? null,
+      });
+    }
+
+    if (metas.length === 0) return [];
+    index.bulkAddSessions(metas);
+    return metas
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map(metaToInfo);
   }
 
   /** 加载已有会话（从默认路径） */

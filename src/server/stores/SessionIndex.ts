@@ -50,6 +50,13 @@ export class SessionIndex {
     this.save()
   }
 
+  bulkAddSessions(metas: SessionMeta[]): void {
+    for (const meta of metas) {
+      this.entries.set(meta.sessionId, meta)
+    }
+    if (metas.length > 0) this.save()
+  }
+
   updateSession(sessionId: string, updates: Partial<Omit<SessionMeta, 'sessionId'>>): void {
     const existing = this.entries.get(sessionId)
     if (!existing) return
