@@ -11,11 +11,13 @@ import type { MessageStore } from "./store.js"
 import { QuestionBridge } from "./questionBridge.js"
 import { AskQuestionResponseParamsSchema } from "../protocol/types.js"
 import { loadSkills } from "./skills/index.js"
+import { SkillWatcher } from "./skills/watcher.js"
 
 let agent: Agent | null = null
 let currentCwd = process.cwd()
 let currentAbortController: AbortController | null = null
 let questionBridge: QuestionBridge | null = null
+let skillWatcher: SkillWatcher | undefined
 
 function isPersistenceEnabled(): boolean {
     const env = process.env.LOP_PERSISTENCE
@@ -132,6 +134,18 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                     debugLog("server", "MCP discovery failed:", err)
                 })
             }
+
+            // Start skill file watcher for hot-reload
+            skillWatcher = new SkillWatcher(currentCwd)
+            skillWatcher.start({
+                onReload: async (result) => {
+                    for (const d of result.diagnostics) debugLog("skills", d)
+                    if (agent) {
+                        agent.updateSkills(result.skills)
+                    }
+                },
+                onError: (err) => debugLog("skills", "Watcher error:", err.message),
+            })
 
             sendResponse(requestId, {
                 serverInfo: { name: "lop_minimal_server", version: "0.1.0" },
@@ -349,3 +363,9 @@ rl.on("line", (line) => {
 })
 
 process.stdin.resume()
+
+function cleanup(): void {
+    skillWatcher?.stop().catch(() => {})
+}
+process.on("SIGTERM", cleanup)
+process.on("SIGINT", cleanup)
