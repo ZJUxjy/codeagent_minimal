@@ -8,13 +8,16 @@ import { grepTool } from "./grep.js"
 import { listDirectoryTool } from "./listDirectory.js"
 import { askQuestionTool } from "./askQuestion.js"
 import { createDiscoveredMcpTool } from "./mcpTool.js"
+import { createSkillTool } from "./skill.js"
 import { McpClientManager } from "../mcp/clientManager.js"
 import type { McpServerConfig } from "../../protocol/types.js"
+import type { Skill } from "../skills/types.js"
 
 export interface ToolRegistryOptions {
     mcpServers?: Record<string, McpServerConfig>
     /** When true, do not register core tools (used when copying a filtered tool set). */
     skipDefaultTools?: boolean
+    skills?: Skill[]
 }
 
 export class ToolRegistry {
@@ -31,6 +34,10 @@ export class ToolRegistry {
             this.register(grepTool)
             this.register(listDirectoryTool)
             this.register(askQuestionTool)
+        }
+
+        if (options.skills && options.skills.length > 0) {
+            this.register(createSkillTool(options.skills))
         }
 
         if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {

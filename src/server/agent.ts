@@ -13,6 +13,7 @@ import { listSubagents } from "./subagents/manager.js"
 import { truncateMessages } from "./utils/truncateMessages.js"
 import { FileIndexManager } from "./indexing/fileIndexManager.js"
 import type { Skill } from "./skills/types.js"
+import { createSkillTool } from "./tools/skill.js"
 
 export interface AgentConfig {
     provider: Provider
@@ -74,9 +75,10 @@ export class Agent {
             baseURL: config.baseURL,
             debug: config.debug,
         })
-        const registryOptions: ToolRegistryOptions = config.mcpConfig?.mcpServers
-            ? { mcpServers: config.mcpConfig.mcpServers }
-            : {}
+        const registryOptions: ToolRegistryOptions = {
+            ...(config.mcpConfig?.mcpServers ? { mcpServers: config.mcpConfig.mcpServers } : {}),
+            skills: config.skills,
+        }
         this.tools = config.tools ?? new ToolRegistry(registryOptions)
         this.store = config.store ?? new InMemoryStore()
         this.hooks = config.hooks ?? noopHooks
@@ -138,7 +140,7 @@ export class Agent {
 
         return [
             "The following skills provide specialized instructions for specific tasks.",
-            "Use the read tool to load a skill when the task matches its description.",
+            "Use the skill tool to load a skill when the task matches its description.",
             "When a skill references relative paths, resolve them against the skill directory.",
             "",
             "<available_skills>",
