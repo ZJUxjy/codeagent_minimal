@@ -2,10 +2,54 @@ import { readFile } from 'fs/promises'
 import { CommandKind, type CommandContext, type SlashCommand, type SlashCommandActionReturn } from '../types.js'
 import { loadSkills, type Skill } from '../../server/skills/index.js'
 import { readRegistry } from '../../server/skills/registry.js'
-import { installPackage, uninstallPackage, updatePackage } from '../../server/skills/installer.js'
+import { installPackage, uninstallPackage, updatePackage, nameFromUrl } from '../../server/skills/installer.js'
 
 async function discoverSkills(context: CommandContext): Promise<{ skills: Skill[]; diagnostics: string[] }> {
     return loadSkills(context.config.cwd, { skills: context.config.skills })
+}
+
+function installedMessage(pkg: { name: string; url: string; sourcePath: string; skillsDir: string }): SlashCommandActionReturn {
+    return {
+        type: 'message',
+        content: `Installed '${pkg.name}' from ${pkg.url}\nSkills are available at: ${pkg.sourcePath}/${pkg.skillsDir}`,
+    }
+}
+
+async function installWithProxyFallback(
+    url: string,
+    context: CommandContext,
+): Promise<SlashCommandActionReturn> {
+    const PROXY_PREFIX = 'https://gh-proxy.org/'
+    let lastError: Error | null = null
+
+    try {
+        context.ui.addSystemMessage(`Cloning ${url}...`)
+        const pkg = await installPackage(url)
+        return installedMessage(pkg)
+    } catch (err: any) {
+        lastError = err
+        if (err.message.includes('already installed')) {
+            context.ui.addSystemMessage(`Package already installed, removing and retrying via proxy...`)
+            await uninstallPackage(nameFromUrl(url))
+        } else {
+            context.ui.addSystemMessage(`Direct clone failed: ${err.message}. Retrying with proxy ${PROXY_PREFIX}...`)
+        }
+    }
+
+    const proxyUrl = PROXY_PREFIX + url
+    try {
+        context.ui.addSystemMessage(`Cloning via proxy ${proxyUrl}...`)
+        const pkg = await installPackage(proxyUrl)
+        return installedMessage(pkg)
+    } catch (err: any) {
+        lastError = err
+        if (err.message.includes('already installed')) {
+            context.ui.addSystemMessage(`Package already installed (proxy), removing...`)
+            await uninstallPackage(nameFromUrl(proxyUrl))
+        }
+    }
+
+    return { type: 'message', content: `Install failed: ${lastError?.message ?? 'unknown error'}`, isError: true }
 }
 
 export const skillsCommand: SlashCommand = {
@@ -77,29 +121,7 @@ export const skillCommand: SlashCommand = {
             const url = rest.join(' ').trim()
             if (!url) return { type: 'message', content: 'Usage: /skill install <git-url>', isError: true }
 
-            const PROXY_PREFIX = 'https://gh-proxy.org/'
-            let lastError: Error | null = null
-
-            for (const tryUrl of [url, PROXY_PREFIX + url]) {
-                try {
-                    const pkg = await installPackage(tryUrl)
-                    return {
-                        type: 'message',
-                        content: `Installed '${pkg.name}' from ${pkg.url}\nSkills are available at: ${pkg.sourcePath}/${pkg.skillsDir}`,
-                    }
-                } catch (err: any) {
-                    lastError = err
-                    if (err.message.includes('already installed')) {
-                        context.ui.addSystemMessage(`ℹ️ ${err.message}`)
-                        await uninstallPackage(tryUrl.split('/').pop() ?? '')
-                        continue
-                    }
-                    if (tryUrl.startsWith(PROXY_PREFIX)) break
-                    context.ui.addSystemMessage(`❌ ${err.message}，加速前缀：${PROXY_PREFIX}`)
-                }
-            }
-
-            return { type: 'message', content: `Install failed: ${lastError?.message}`, isError: true }
+            return installWithProxyFallback(url, context)
         }
 
         // --- uninstall ---

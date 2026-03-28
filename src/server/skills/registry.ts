@@ -1,8 +1,10 @@
 import * as fs from "fs/promises"
-import * as os from "os"
 import * as path from "path"
+import { getBaseDir } from "../utils/storagePath.js"
 
-const REGISTRY_PATH = path.join(os.homedir(), ".lop", "installed.json")
+function getRegistryPath(): string {
+    return path.join(getBaseDir(), "installed.json")
+}
 
 export interface InstalledPackage {
     name: string
@@ -17,9 +19,15 @@ export interface Registry {
 }
 
 export async function readRegistry(): Promise<Registry> {
+    const registryPath = getRegistryPath()
     try {
-        const content = await fs.readFile(REGISTRY_PATH, "utf8")
-        return JSON.parse(content) as Registry
+        const content = await fs.readFile(registryPath, "utf8")
+        try {
+            return JSON.parse(content) as Registry
+        } catch {
+            console.warn(`Registry file corrupt (${registryPath}), resetting to empty.`)
+            return { packages: [] }
+        }
     } catch (err: any) {
         if (err.code === "ENOENT") return { packages: [] }
         throw err
@@ -27,8 +35,12 @@ export async function readRegistry(): Promise<Registry> {
 }
 
 export async function writeRegistry(registry: Registry): Promise<void> {
-    await fs.mkdir(path.dirname(REGISTRY_PATH), { recursive: true })
-    await fs.writeFile(REGISTRY_PATH, JSON.stringify(registry, null, 2), "utf8")
+    const registryPath = getRegistryPath()
+    const dir = path.dirname(registryPath)
+    await fs.mkdir(dir, { recursive: true })
+    const tmpPath = registryPath + ".tmp"
+    await fs.writeFile(tmpPath, JSON.stringify(registry, null, 2), "utf8")
+    await fs.rename(tmpPath, registryPath)
 }
 
 export function getPackage(registry: Registry, name: string): InstalledPackage | undefined {

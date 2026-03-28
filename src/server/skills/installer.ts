@@ -1,13 +1,16 @@
 import * as fs from "fs/promises"
-import * as os from "os"
 import * as path from "path"
 import { spawn } from "child_process"
 import { existsSync } from "fs"
+import { getBaseDir } from "../utils/storagePath.js"
 import { readRegistry, writeRegistry, getPackage, type InstalledPackage } from "./registry.js"
 
-const SOURCES_DIR = path.join(os.homedir(), ".lop", "sources")
+const IGNORE_DIRS = new Set([".git", "node_modules", ".svn", ".hg"])
 
-/** Run a git command and return stdout. Rejects on non-zero exit. */
+function getSourcesDir(): string {
+    return path.join(getBaseDir(), "sources")
+}
+
 function git(args: string[], cwd?: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const proc = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] })
@@ -22,12 +25,16 @@ function git(args: string[], cwd?: string): Promise<string> {
     })
 }
 
-/** Derive a short package name from a git URL. */
-function nameFromUrl(url: string): string {
-    return url.replace(/\.git$/, "").split("/").pop() ?? url
+export function nameFromUrl(url: string): string {
+    let cleaned = url.replace(/\/+$/, "").replace(/\.git$/, "")
+    if (cleaned.includes("@") && cleaned.includes(":")) {
+        cleaned = cleaned.split(":").pop() ?? cleaned
+       }
+    const name = cleaned.split("/").pop()
+    if (!name) throw new Error(`Cannot derive package name from URL: ${url}`)
+    return name
 }
 
-/** Detect which subdirectory contains skill packages (directories with SKILL.md). */
 async function detectSkillsDir(sourcePath: string): Promise<string> {
     const candidates = ["skills", "."]
     for (const candidate of candidates) {
@@ -38,7 +45,23 @@ async function detectSkillsDir(sourcePath: string): Promise<string> {
             e => e.isDirectory() && existsSync(path.join(dir, e.name, "SKILL.md"))
         )
         if (hasSkill) return candidate
+       }
+
+    const rootEntries = await fs.readdir(sourcePath, { withFileTypes: true })
+    for (const entry of rootEntries) {
+        if (!entry.isDirectory() || IGNORE_DIRS.has(entry.name)) continue
+        const subDir = path.join(sourcePath, entry.name)
+        try {
+            const subEntries = await fs.readdir(subDir, { withFileTypes: true })
+            const hasSkill = subEntries.some(
+                e => e.isDirectory() && existsSync(path.join(subDir, e.name, "SKILL.md"))
+            )
+            if (hasSkill) return entry.name
+        } catch {
+            // Skip unreadable directories
+        }
     }
+
     throw new Error("No skill packages found in the repository (expected a skills/ directory or root-level skill directories)")
 }
 
@@ -48,11 +71,18 @@ export async function installPackage(url: string): Promise<InstalledPackage> {
     if (getPackage(registry, name)) {
         throw new Error(`Package '${name}' is already installed`)
     }
-    const destPath = path.join(SOURCES_DIR, name)
+    const sourcesDir = getSourcesDir()
+    const destPath = path.join(sourcesDir, name)
     if (existsSync(destPath)) {
+        if (!existsSync(path.join(destPath, ".git"))) {
+            throw new Error(
+                `Directory '${destPath}' already exists and is not a git repository. ` +
+                `Remove it manually or use a different package name.`
+            )
+        }
         await fs.rm(destPath, { recursive: true, force: true })
     }
-    await fs.mkdir(SOURCES_DIR, { recursive: true })
+    await fs.mkdir(sourcesDir, { recursive: true })
     await git(["clone", url, destPath])
     const skillsDir = await detectSkillsDir(destPath)
     const pkg: InstalledPackage = {
@@ -84,4 +114,11 @@ export async function updatePackage(name: string): Promise<void> {
     if (!existsSync(pkg.sourcePath)) throw new Error(`Source directory missing for '${name}': ${pkg.sourcePath}`)
 
     await git(["pull", "--ff-only"], pkg.sourcePath)
+
+    const newSkillsDir = await detectSkillsDir(pkg.sourcePath)
+    if (newSkillsDir !== pkg.skillsDir) {
+        pkg.skillsDir = newSkillsDir
+    }
+    pkg.installedAt = new Date().toISOString()
+    await writeRegistry(registry)
 }
