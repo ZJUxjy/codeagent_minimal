@@ -361,7 +361,7 @@ export const InputBox = ({ onSubmit, onClear, onInterrupt, disabled, commands = 
                     flexBasis={0}
                 >
                     <Text bold color={focusIndex === 1 ? colors.status.success : colors.text.secondary}>
-                        {'[+] '}
+                        {'[r2d2] '}
                     </Text>
                     <Text dimColor color={colors.text.secondary}>
                         {focusIndex === 1 ? 'coming soon' : ''}

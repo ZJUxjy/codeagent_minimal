@@ -202,6 +202,17 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                         timestamp: Date.now(),
                     }])
                 }
+                if (event.finishReason && event.finishReason.startsWith('error')) {
+                    const reasonText = event.finishReason.length > 100
+                        ? event.finishReason.slice(0, 100) + '...'
+                        : event.finishReason
+                    setMessages(prev => [...prev, {
+                        id: `system-${Date.now()}`,
+                        role: 'assistant' as const,
+                        content: `⚠️ ${reasonText}`,
+                        timestamp: Date.now(),
+                    }])
+                }
                 setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
                 setIsLoading(false)
                 break
