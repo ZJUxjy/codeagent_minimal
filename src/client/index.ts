@@ -70,7 +70,18 @@ export class Client {
       }
     }
 
-    this.server = spawn("node", ["dist/server/index.js"], {
+    // When running under tsx (dev/debug), spawn server with tsx so TS breakpoints work.
+    const useTsx = !!(process.env.TSX_TSCONFIG_PATH || process.argv[1]?.includes('tsx'))
+    const serverArgs: string[] = useTsx
+      ? ["--import", "tsx", "src/server/index.ts"]
+      : ["dist/server/index.js"]
+
+    // Expose inspector when VSCODE_INSPECTOR_OPTIONS is set (VS Code debugging)
+    if (process.env.VSCODE_INSPECTOR_OPTIONS) {
+      serverArgs.unshift("--inspect=9229")
+    }
+
+    this.server = spawn("node", serverArgs, {
       stdio: ["pipe", "pipe", "inherit"],
       cwd: options.cwd ?? process.cwd(),
       env: { ...process.env, ...env },

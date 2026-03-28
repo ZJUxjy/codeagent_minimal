@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises'
 import { CommandKind, type CommandContext, type SlashCommand, type SlashCommandActionReturn } from '../types.js'
 import { loadSkills, type Skill } from '../../server/skills/index.js'
-import { readRegistry } from '../../server/skills/registry.js'
+import { readRegistry, getPackage } from '../../server/skills/registry.js'
 import { installPackage, uninstallPackage, updatePackage, nameFromUrl } from '../../server/skills/installer.js'
 
 async function discoverSkills(context: CommandContext): Promise<{ skills: Skill[]; diagnostics: string[] }> {
@@ -20,22 +20,24 @@ async function installWithProxyFallback(
     context: CommandContext,
 ): Promise<SlashCommandActionReturn> {
     const PROXY_PREFIX = 'https://gh-proxy.org/'
+    const name = nameFromUrl(url)
     let lastError: Error | null = null
 
+    // Try direct URL (uninstall first if already installed)
     try {
+        if (getPackage(await readRegistry(), name)) {
+            context.ui.addSystemMessage(`Package '${name}' already installed, removing...`)
+            await uninstallPackage(name)
+        }
         context.ui.addSystemMessage(`Cloning ${url}...`)
         const pkg = await installPackage(url)
         return installedMessage(pkg)
     } catch (err: any) {
         lastError = err
-        if (err.message.includes('already installed')) {
-            context.ui.addSystemMessage(`Package already installed, removing and retrying via proxy...`)
-            await uninstallPackage(nameFromUrl(url))
-        } else {
-            context.ui.addSystemMessage(`Direct clone failed: ${err.message}. Retrying with proxy ${PROXY_PREFIX}...`)
-        }
+        context.ui.addSystemMessage(`Direct clone failed: ${err.message}. Retrying with proxy ${PROXY_PREFIX}...`)
     }
 
+    // Fallback to proxy
     const proxyUrl = PROXY_PREFIX + url
     try {
         context.ui.addSystemMessage(`Cloning via proxy ${proxyUrl}...`)
@@ -43,13 +45,9 @@ async function installWithProxyFallback(
         return installedMessage(pkg)
     } catch (err: any) {
         lastError = err
-        if (err.message.includes('already installed')) {
-            context.ui.addSystemMessage(`Package already installed (proxy), removing...`)
-            await uninstallPackage(nameFromUrl(proxyUrl))
-        }
     }
 
-    return { type: 'message', content: `Install failed: ${lastError?.message ?? 'unknown error'}`, isError: true }
+    return { type: 'message', content: `Install failed: ${lastError!.message}`, isError: true }
 }
 
 export const skillsCommand: SlashCommand = {

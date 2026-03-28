@@ -14,9 +14,9 @@ A lightweight, terminal-native AI coding agent. Runs locally, talks to any major
 │  Done. Converted 3 callback chains to async/await and   │
 │  added proper error propagation.                        │
 │                                                         │
-│ ╭──────────────────────────────────────╮               │
-│ │ > Message or /help...                │  [+]          │
-│ ╰──────────────────────────────────────╯               │
+│ ╭──────────────────────────────────────╮                │
+│ │ > Message or /help...                │  [+]           │
+│ ╰──────────────────────────────────────╯                │
 └─────────────────────────────────────────────────────────┘
 ```
 
