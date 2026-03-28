@@ -349,6 +349,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                         key={resizeKey}
                         messages={messages}
                         streaming={streaming}
+                        isLoading={isLoading}
                     />
                     {isLoading && (
                         <LoadingIndicator

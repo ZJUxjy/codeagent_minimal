@@ -57,6 +57,12 @@ export interface ThinkingMessage extends BaseMessage {
 
 export type Message = UserMessage | AssistantMessage | ToolMessage | ThinkingMessage;
 
+/** 一个对话回合：用户提问 + 所有后续回答（thinking/tool/assistant） */
+export interface MessageTurn {
+    id: string;
+    messages: Message[];
+}
+
 /** 流式输出的瞬时状态（尚未提交到 messages 数组的内容） */
 export interface StreamingState {
     content: string
