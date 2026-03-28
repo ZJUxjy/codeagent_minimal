@@ -103,4 +103,48 @@ describe("loadSkills", () => {
         expect(result.skills).toHaveLength(1)
         expect(result.diagnostics.some((d) => d.includes("does not match directory name"))).toBe(true)
     })
+
+    it("discovers skills from .agents/skills/ directory", async () => {
+        const skillDir = path.join(projectDir, ".agents", "skills", "agent-skill")
+        await fs.mkdir(skillDir, { recursive: true })
+        await fs.writeFile(
+            path.join(skillDir, "SKILL.md"),
+            `---\nname: agent-skill\ndescription: Skill from .agents directory\n---\n\ncontent`,
+            "utf8",
+        )
+
+        const result = await loadSkills(projectDir)
+
+        expect(result.skills).toHaveLength(1)
+        expect(result.skills[0]).toMatchObject({
+            name: "agent-skill",
+            description: "Skill from .agents directory",
+            baseDir: skillDir,
+        })
+    })
+
+    it(".lop/skills/ takes priority over .agents/skills/ on name collision", async () => {
+        const lopSkillDir = path.join(projectDir, ".lop", "skills", "shared")
+        const agentsSkillDir = path.join(projectDir, ".agents", "skills", "shared")
+
+        await fs.mkdir(lopSkillDir, { recursive: true })
+        await fs.mkdir(agentsSkillDir, { recursive: true })
+
+        await fs.writeFile(
+            path.join(lopSkillDir, "SKILL.md"),
+            `---\nname: shared\ndescription: lop version\n---\n`,
+            "utf8",
+        )
+        await fs.writeFile(
+            path.join(agentsSkillDir, "SKILL.md"),
+            `---\nname: shared\ndescription: agents version\n---\n`,
+            "utf8",
+        )
+
+        const result = await loadSkills(projectDir)
+
+        expect(result.skills).toHaveLength(1)
+        expect(result.skills[0].description).toBe("lop version")
+        expect(result.diagnostics.some((d) => d.includes("duplicate skill name"))).toBe(true)
+    })
 })

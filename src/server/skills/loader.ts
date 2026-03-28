@@ -89,10 +89,12 @@ function buildDiscoveryPaths(cwd: string, config?: LopConfig): string[] {
     const gitRoot = findGitRoot(cwd)
     if (gitRoot) {
         paths.push(path.join(gitRoot, ROOT_DIR, SKILLS_DIR))
+        paths.push(path.join(gitRoot, ".agents", SKILLS_DIR))
     }
 
     // Global user skills have lowest priority
     paths.push(path.join(os.homedir(), ROOT_DIR, SKILLS_DIR))
+    paths.push(path.join(os.homedir(), ".agents", SKILLS_DIR))
 
     // 去重，保持顺序
     return Array.from(new Set(paths))
