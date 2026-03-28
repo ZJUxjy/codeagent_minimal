@@ -13,6 +13,7 @@ import { listSubagents } from "./subagents/manager.js"
 import { truncateMessages } from "./utils/truncateMessages.js"
 import { FileIndexManager } from "./indexing/fileIndexManager.js"
 import type { Skill } from "./skills/types.js"
+import { buildSkillsPromptSection } from "./skills/loader.js"
 import { createSkillTool } from "./tools/skill.js"
 
 export interface AgentConfig {
@@ -127,26 +128,7 @@ export class Agent {
     }
 
     private buildSkillsPrompt(skills: Skill[]): string | undefined {
-        const enabled = skills.filter((skill) => !skill.disableModelInvocation)
-        if (enabled.length === 0) return undefined
-
-        const skillItems = enabled.map((skill) => [
-            "  <skill>",
-            `    <name>${Agent.escapeXml(skill.name)}</name>`,
-            `    <description>${Agent.escapeXml(skill.description)}</description>`,
-            `    <location>${skill.filePath}</location>`,
-            "  </skill>",
-        ].join("\n"))
-
-        return [
-            "The following skills provide specialized instructions for specific tasks.",
-            "Use the skill tool to load a skill when the task matches its description.",
-            "When a skill references relative paths, resolve them against the skill directory.",
-            "",
-            "<available_skills>",
-            skillItems.join("\n"),
-            "</available_skills>",
-        ].join("\n")
+        return buildSkillsPromptSection(skills)
     }
 
     getMcpManager() {

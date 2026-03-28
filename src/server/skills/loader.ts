@@ -4,7 +4,7 @@ import * as os from "os"
 import * as path from "path"
 import { parse as parseYaml } from "yaml"
 import type { LopConfig } from "../../protocol/types.js"
-import type { Skill, SkillLoadResult } from "./types.js"
+import type { Skill, SkillLoadResult, SkillPromptOptions } from "./types.js"
 import { readRegistry } from "./registry.js"
 
 const ROOT_DIR = ".lop"
@@ -180,4 +180,54 @@ export async function loadSkills(cwd: string, config?: LopConfig): Promise<Skill
     }
 
     return { skills, diagnostics }
+}
+
+export function buildSkillsPromptSection(skills: Skill[], opts?: SkillPromptOptions): string | undefined {
+    const enabled = skills.filter((skill) => !skill.disableModelInvocation)
+    if (enabled.length === 0) return undefined
+
+    const maxChars = opts?.maxChars ?? 3000
+
+    const escapeXml = (str: string) =>
+        str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
+    const header = [
+        "The following skills provide specialized instructions for specific tasks.",
+        "You have a `skill` tool to load the full instructions when the task matches its description.",
+        "When a skill references relative paths, resolve them against the skill directory.",
+        "",
+        "<available_skills>",
+    ].join("\n")
+
+    const fullItems = enabled.map((skill) => [
+        "  <skill>",
+        `    <name>${escapeXml(skill.name)}</name>`,
+        `    <description>${escapeXml(skill.description)}</description>`,
+        `    <location>${skill.filePath}</location>`,
+        "  </skill>",
+    ].join("\n"))
+
+    const fullBody = `${header}\n${fullItems.join("\n")}\n</available_skills>`
+    if (fullBody.length <= maxChars) return fullBody
+
+    const compactItems = enabled.map((skill) => [
+        "  <skill>",
+        `    <name>${escapeXml(skill.name)}</name>`,
+        `    <location>${skill.filePath}</location>`,
+        "  </skill>",
+    ].join("\n"))
+
+    const compactBody = `${header}\n${compactItems.join("\n")}\n</available_skills>`
+    if (compactBody.length <= maxChars) return compactBody
+
+    const truncated = compactItems.slice(
+        0,
+        Math.floor(enabled.length * maxChars / compactBody.length),
+    )
+    return [
+        header,
+        truncated.join("\n"),
+        `  <!-- ${enabled.length - truncated.length} more skills omitted (budget exceeded) -->`,
+        "</available_skills>",
+    ].join("\n")
 }
