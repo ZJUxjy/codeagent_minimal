@@ -5,6 +5,7 @@ import type { Message, ToolStats } from '../tui/types.js'
 /** 命令类型 */
 export enum CommandKind {
     BUILT_IN = 'built-in',
+    SKILL = 'skill',
 }
 
 /** 命令上下文 - 传递给命令的上下文 */

@@ -37,6 +37,21 @@ export class CommandRegistry {
     }
 
     /**
+     * Merge external commands into the registry (skill commands, dynamic loaders).
+     * Later registrations override earlier ones on name collision.
+     */
+    mergeCommands(commands: SlashCommand[]): void {
+        for (const cmd of commands) {
+            this.commands.set(cmd.name, cmd)
+            if (cmd.altNames) {
+                for (const alt of cmd.altNames) {
+                    this.aliasMap.set(alt, cmd.name)
+                }
+            }
+        }
+    }
+
+    /**
      * 根据名称或别名查找命令
      */
     find(name: string): SlashCommand | undefined {

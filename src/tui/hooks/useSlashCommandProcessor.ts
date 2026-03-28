@@ -1,6 +1,7 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useEffect } from 'react'
 import { CommandRegistry } from '../../commands/CommandRegistry.js'
 import { BuiltinCommandLoader } from '../../commands/loaders/BuiltinCommandLoader.js'
+import { SkillCommandLoader } from '../../commands/loaders/SkillCommandLoader.js'
 import { parseCommand, isCommand } from '../utils/commandParser.js'
 import type { Client } from '../../client/index.js'
 import type { LopConfig } from '../../protocol/types.js'
@@ -76,6 +77,21 @@ export function useSlashCommandProcessor(
         const commands = loader.loadCommands()
         return new CommandRegistry(commands)
     }, [])
+
+    // Skill command loader
+    const skillLoader = useMemo(
+        () => new SkillCommandLoader(config.cwd, config),
+        [config.cwd, config],
+    )
+
+    // Load skill commands on mount
+    useEffect(() => {
+        skillLoader.loadCommands().then((skillCommands) => {
+            registry.mergeCommands(skillCommands)
+        }).catch(() => {
+            // Skill loading is non-critical
+        })
+    }, [skillLoader, registry])
 
     // 2. 处理输入
     const processInput = useCallback(async (input: string): Promise<ProcessResult> => {
