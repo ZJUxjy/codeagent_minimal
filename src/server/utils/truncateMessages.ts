@@ -1,5 +1,35 @@
 import type { CoreMessage } from "ai"
 
+/**
+ * Convert role:"tool" messages to role:"user" with plain-text content.
+ * Some Anthropic-compatible endpoints (e.g. glm) don't fully support the
+ * `tool_result` content-block format and reject messages that reference tools.
+ * By converting to plain user text, the tool results still reach the model
+ * as context without requiring provider-side tool-result support.
+ */
+export function convertToolMessages(messages: CoreMessage[]): CoreMessage[] {
+    const result: CoreMessage[] = []
+    for (const msg of messages) {
+        if (msg.role !== "tool") {
+            result.push(msg)
+            continue
+        }
+        // Flatten tool-result parts into readable text
+        const parts = Array.isArray(msg.content) ? msg.content : []
+        const text = parts
+            .map((p: any) => {
+                if (p.type === "tool-result") {
+                    const body = typeof p.result === "string" ? p.result : JSON.stringify(p.result)
+                    return `[Tool Result: ${p.toolName}]\n${body}`
+                }
+                return JSON.stringify(p)
+            })
+            .join("\n\n")
+        result.push({ role: "user", content: text })
+    }
+    return result
+}
+
 /** Conservative estimate: ~3.5 chars per token for mixed code/text */
 const CHARS_PER_TOKEN = 3.5
 

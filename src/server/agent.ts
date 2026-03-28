@@ -10,7 +10,7 @@ import type { QuestionBridge } from "./questionBridge.js"
 import { evaluateToolPolicy } from "./security/policy.js"
 import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
-import { truncateMessages } from "./utils/truncateMessages.js"
+import { truncateMessages, convertToolMessages } from "./utils/truncateMessages.js"
 import { FileIndexManager } from "./indexing/fileIndexManager.js"
 import type { Skill } from "./skills/types.js"
 import { buildSkillsPromptSection } from "./skills/loader.js"
@@ -58,7 +58,7 @@ export class Agent {
     private questionBridge?: QuestionBridge
     private activeSignal?: AbortSignal
     private fileIndex: FileIndexManager
-    private readonly skills: Skill[]
+    private skills: Skill[]
 
     constructor(config: AgentConfig) {
         const { store, tools, mcpConfig, maxTurns, hooks, questionBridge, ...snapshot } = config
@@ -191,7 +191,11 @@ export class Agent {
                     return
                 }
 
-                const stream = this.llm.stream(truncateMessages(store.getAll()), toolDefs, systemPrompt ? { system: systemPrompt } : undefined)
+                const stream = this.llm.stream(
+                    convertToolMessages(truncateMessages(store.getAll())),
+                    toolDefs,
+                    systemPrompt ? { system: systemPrompt } : undefined,
+                )
                 let assistantContent = ""
                 const toolCallsThisTurn: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }> = []
                 const pendingToolEvents: Array<{ id: string; name: string; args: Record<string, unknown> }> = []
@@ -307,6 +311,15 @@ export class Agent {
             return { content }
         } catch (error: any) {
             return { content: `Error: ${error.message}`, isError: true }
+        }
+    }
+
+    /** Hot-reload skills at runtime (e.g. from file watcher). */
+    updateSkills(skills: Skill[]): void {
+        this.skills = skills
+        // Re-register skill tool with updated skills
+        if (this.tools.get("skill")) {
+            this.tools.register(createSkillTool(skills))
         }
     }
 
