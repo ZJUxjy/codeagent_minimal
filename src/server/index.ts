@@ -269,6 +269,16 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             break
         }
 
+        case "set_approval_mode": {
+            const { mode } = params as { mode: "default" | "cautious" | "yolo" }
+            if (permissionEngine) {
+                permissionEngine.setApprovalMode(mode)
+                debugLog("permission", `Approval mode set to: ${mode}`)
+            }
+            sendResponse(requestId, { mode })
+            break
+        }
+
         case "ask_question_response": {
             const parseResult = AskQuestionResponseParamsSchema.safeParse(params)
             if (!parseResult.success) {

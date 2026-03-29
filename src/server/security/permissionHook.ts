@@ -1,6 +1,6 @@
 import type { AgentHooks } from "../hooks/types.js"
 import type { QuestionBridge } from "../questionBridge.js"
-import { PermissionEngine } from "./permissionEngine.js"
+import { PermissionEngine, specifierFromCall } from "./permissionEngine.js"
 import { truncate } from "../../utils/truncate.js"
 
 function summarizeToolCall(name: string, args: Record<string, unknown>): string {
@@ -33,7 +33,8 @@ export function createPermissionHook(
         const outcome = await bridge.askPermission(call.name, summary)
 
         if (outcome === "always") {
-            engine.addSessionAllowRule(call.name)
+            const specifier = specifierFromCall(call.name, call.args)
+            engine.addSessionAllowRule(call.name, specifier)
         }
 
         return outcome === "deny" ? "deny" : "allow"

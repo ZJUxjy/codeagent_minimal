@@ -12,7 +12,7 @@ interface MessageListProps {
     isLoading: boolean;
 }
 
-/** 将扁平消息数组按"回合"分组：每个 user 消息到下一个 user 消息之前 */
+/** 按回合分组消息：每个 user 消息到下一个 user 消息之前 */
 function groupIntoTurns(messages: Message[]): MessageTurn[] {
     const turns: MessageTurn[] = [];
     let current: Message[] = [];
@@ -32,7 +32,7 @@ function groupIntoTurns(messages: Message[]): MessageTurn[] {
     return turns;
 }
 
-/** 用左边框包裹一个对话回合 */
+/** 用边框包裹一个对话回合 */
 const TurnBox: React.FC<{ colors: SemanticColors; children: React.ReactNode }> = ({
     colors,
     children,
@@ -51,6 +51,18 @@ const TurnBox: React.FC<{ colors: SemanticColors; children: React.ReactNode }> =
     </Box>
 );
 
+/** 渲染一个回合中的所有消息 */
+const TurnMessages: React.FC<{ messages: Message[]; colors: SemanticColors }> = ({
+    messages,
+    colors,
+}) => (
+    <>
+        {messages.map((msg) => (
+            <MessageItem key={msg.id} message={msg} colors={colors} />
+        ))}
+    </>
+);
+
 export const MessageList: React.FC<MessageListProps> = ({
     messages,
     streaming,
@@ -58,11 +70,12 @@ export const MessageList: React.FC<MessageListProps> = ({
 }) => {
     const { colors } = useTheme();
 
-    const turns = groupIntoTurns(messages);
-
-    // 正在进行的回合不放入 Static（需要实时更新），已完成的放入
+    const turns = React.useMemo(() => groupIntoTurns(messages), [messages]);
     const hasActiveTurn = isLoading && turns.length > 0;
-    const completedTurns = hasActiveTurn ? turns.slice(0, -1) : turns;
+    const completedTurns = React.useMemo(
+        () => (hasActiveTurn ? turns.slice(0, -1) : turns),
+        [turns, hasActiveTurn],
+    );
     const activeTurn = hasActiveTurn ? turns[turns.length - 1] : null;
 
     return (
@@ -70,19 +83,15 @@ export const MessageList: React.FC<MessageListProps> = ({
             <Static items={completedTurns}>
                 {(turn) => (
                     <TurnBox key={turn.id} colors={colors}>
-                        {turn.messages.map((msg) => (
-                            <MessageItem key={msg.id} message={msg} colors={colors} />
-                        ))}
+                        <TurnMessages messages={turn.messages} colors={colors} />
                     </TurnBox>
                 )}
             </Static>
 
-            {/* 当前进行中的回合 — 实时渲染 */}
+            {/* 正在进行的回合不放入 Static（需要实时更新） */}
             {activeTurn ? (
                 <TurnBox colors={colors}>
-                    {activeTurn.messages.map((msg) => (
-                        <MessageItem key={msg.id} message={msg} colors={colors} />
-                    ))}
+                    <TurnMessages messages={activeTurn.messages} colors={colors} />
                     {streaming.thinkingContent ? (
                         <Box marginTop={1}>
                             <ThinkingMessage

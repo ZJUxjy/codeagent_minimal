@@ -237,6 +237,11 @@ export class Client {
     await this.sendRequest("ask_question_response", { requestId, answers, cancelled })
   }
 
+  /** Change approval mode at runtime */
+  async setApprovalMode(mode: "default" | "cautious" | "yolo"): Promise<void> {
+    await this.sendRequest("set_approval_mode", { mode })
+  }
+
   /** 加载历史会话（替换当前 Agent store） */
   async loadSession(sessionId: string): Promise<{ sessionId: string; messageCount: number }> {
     return this.sendRequest('load_session', { sessionId })

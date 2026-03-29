@@ -385,6 +385,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     )}
                     {pendingPermission && (
                         <PermissionPrompt
+                            toolName={pendingPermission.toolName}
                             summary={pendingPermission.summary}
                             onDecide={handlePermissionDecide}
                         />

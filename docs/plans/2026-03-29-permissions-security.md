@@ -30,6 +30,7 @@ The core problem: `"ask"` decisions have no user-facing prompt — they silently
 4. **Approval modes** — power users can set `yolo` (never ask) or `cautious` (ask for all writes)
 5. **No AST dependency in v1** — pattern/regex matching is sufficient; tree-sitter can come later
 6. **Config-file rules** — allow/deny lists in `.lop/config.json` for CI/automated use
+7. **Non-interactive fallback** — when no TUI is connected (Client API), "ask" degrades to "deny" with a clear error
 
 ---
 
@@ -39,7 +40,7 @@ The core problem: `"ask"` decisions have no user-facing prompt — they silently
 Tool call arrives
       │
       ▼
-[PermissionEngine.check(toolName, args)]   ← all policy logic lives here
+[PermissionEngine.check(toolName, args, cwd)]   ← all policy logic lives here
       │
    ┌──┴──────────────────────┐
    │  1. Explicit deny rule?  │──► DENY (abort tool, return error to model)
@@ -54,15 +55,21 @@ Tool call arrives
       ├─ Allow Once   ──► execute, rule saved to sessionRules only
       ├─ Always Allow ──► execute, rule saved to disk (Phase 4)
       └─ Deny         ──► abort, return refusal to model
+
+      │ no TUI connected (non-interactive)
+      ▼
+"ask" → "deny" with error: "Configure allow rules or use --approval-mode yolo"
 ```
 
 ---
 
-## Phase 1: Unify and Wire Policy Execution
+## Phase 1+2: Policy Unification + TUI Prompt (single PR)
 
-**Goal:** Replace the two redundant policy checks with a single `PermissionEngine` path. Make "ask" prompt the user instead of silently denying.
+**Goal:** Replace the two redundant policy checks with a single `PermissionEngine` path, wire up the TUI confirmation prompt, and ensure rejected tools return error results to the LLM (not silently dropped).
 
-### 1.1 Path traversal fix (promote from Phase 6)
+> **Phase 1 and 2 are merged into a single PR** because the hook depends on `askPermission()` and the prompt depends on the hook. Developing them separately would require stubs or broken intermediate states.
+
+### 1.1 Path traversal fix
 
 Fix `policy.ts` **first** — before wiring prompts, because converting "ask"-as-deny to "ask"-as-prompt weakens the current path traversal protection.
 
@@ -85,46 +92,66 @@ Wraps `evaluateToolPolicy` with session-rule awareness (disk persistence added i
 export class PermissionEngine {
   private sessionRules: RuleSet = { allow: [], deny: [] }
 
-  constructor(private approvalMode: ApprovalMode) {}
+  constructor(private approvalMode: ApprovalMode, private interactive: boolean) {}
 
-  check(toolName: string, args: Record<string, unknown>, cwd: string): PermissionLevel {
+  check(toolName: string, args: Record<string, unknown>, cwd: string): PolicyDecision {
     if (this.matchesRule(this.sessionRules.deny, toolName, args))  return "deny"
     if (this.matchesRule(this.sessionRules.allow, toolName, args)) return "allow"
 
     if (this.approvalMode === "yolo")     return "allow"
     if (this.approvalMode === "cautious") return this.cautiousDefault(toolName)
 
-    return evaluateToolPolicy(toolName, args, cwd)  // pass cwd for path resolution
+    return evaluateToolPolicy(toolName, args, cwd)
   }
 
-  addSessionAllowRule(toolName: string, args: Record<string, unknown>): void { /* ... */ }
+  addSessionAllowRule(rule: Rule): void {
+    this.sessionRules.allow.push(rule)
+  }
 }
 ```
 
-"Always allow" in Phase 1 saves to session only; disk persistence is Phase 4.
+- Uses existing `PolicyDecision` type (`"allow" | "deny" | "ask"`) — no new type alias needed.
+- `interactive: boolean` — when `false`, "ask" results are never returned; the hook converts them to "deny" immediately.
 
 ### 1.3 Hook implementation (`src/server/security/permissionHook.ts`)
 
 ```typescript
 export function createPermissionHook(
   engine: PermissionEngine,
-  bridge: QuestionBridge,
+  bridge: QuestionBridge | undefined,  // undefined in non-interactive mode
+  cwd: string,
 ): AgentHooks["beforeToolExecute"] {
   return async (call, _tool) => {
     const level = engine.check(call.name, call.args, cwd)
     if (level === "allow") return "allow"
     if (level === "deny")  return "deny"
 
+    // "ask" — but no TUI available
+    if (!bridge) return "deny"
+
     const decision = await bridge.askPermission({
       toolName: call.name,
       args: call.args,
       summary: summarizeToolCall(call),
     })
-    if (decision === "always") engine.addSessionAllowRule(call.name, call.args)
+    if (decision === "always") {
+      engine.addSessionAllowRule({ tool: call.name, specifier: specifierFromCall(call) })
+    }
     return decision === "deny" ? "deny" : "allow"
   }
 }
 ```
+
+- `cwd` is passed into the factory (not read from closure) since the hook only receives `(call, tool)`.
+- `bridge` is optional — when `undefined` (Client API / non-interactive), "ask" → "deny".
+- `summarizeToolCall(call)` returns a human-readable summary for the prompt:
+  - `bash` → full command string
+  - `write`/`edit` → file path
+  - MCP tools → tool name + key args (first string arg)
+- `specifierFromCall(call)` generates an exact-match specifier for "Always allow" rules in v1:
+  - `bash` → the exact command string
+  - `write`/`edit` → the exact file path
+  - Other tools → exact tool name
 
 Timeout: if `bridge.askPermission` does not resolve within 60 seconds (e.g. user walks away), default to `"deny"`. Reuse existing abort signal pattern.
 
@@ -147,33 +174,34 @@ if (this.hooks.beforeToolExecute) {
 }
 ```
 
-### 1.5 Serialize permission checks before parallel execution
+### 1.5 Serialize permission checks, preserve store consistency
 
-Tools run via `Promise.all` in `runLoop`. Two simultaneous "ask" prompts create a confusing UX. Pre-check permissions sequentially, then execute approved tools in parallel:
+Tools run via `Promise.all` in `runLoop`. Two simultaneous "ask" prompts create a confusing UX. Pre-check permissions sequentially, then execute approved tools — but **rejected tools must still produce tool_result entries** so the LLM and store remain consistent:
 
 ```typescript
 // Pre-check all tool calls sequentially
 const decisions = new Map<string, PolicyDecision>()
 for (const call of pendingToolEvents) {
-  decisions.set(call.id, await permissionCheck(call))
+  const decision = this.hooks.beforeToolExecute
+    ? await this.hooks.beforeToolExecute(call, tool)
+    : "allow"
+  decisions.set(call.id, decision)
 }
-// Execute approved tools in parallel
+
+// Execute all tools — approved ones run normally, denied ones return error results
 const results = await Promise.all(
-  pendingToolEvents
-    .filter(call => decisions.get(call.id) === "allow")
-    .map(call => this.executeTool(call))
+  pendingToolEvents.map(call => {
+    if (decisions.get(call.id) !== "allow") {
+      return { content: `Permission denied for '${call.name}'.`, isError: true }
+    }
+    return this.executeTool(call)
+  })
 )
 ```
 
+This ensures every `tool_call` has a matching `tool_result` in the store, so the LLM can adapt when its action is denied.
+
 Log every decision at debug level: `[permission] bash(rm -rf ./dist) → ask → denied by user`
-
-**Files changed:** `agent.ts`, `policy.ts`, new `permissionEngine.ts`, new `permissionHook.ts`
-
----
-
-## Phase 2: TUI Confirmation Prompt
-
-**Goal:** Implement the interactive prompt that Phase 1 depends on. (Must precede Phase 3 — you cannot test approval modes without a working prompt.)
 
 ### 2.1 Extend QuestionBridge
 
@@ -206,7 +234,7 @@ Keyboard: `a` / `w` / `d`. Falls back to auto-deny after 60s timeout.
 
 Add `permissionRequest` as a new pending state variant in `sessionReducer`.
 
-**Files changed:** new `PermissionPrompt.tsx`, `questionBridge.ts`, `sessionReducer.ts`, `types.ts`
+**Files changed (Phase 1+2):** `agent.ts`, `policy.ts`, `questionBridge.ts`, `sessionReducer.ts`, `types.ts`, new `permissionEngine.ts`, new `permissionHook.ts`, new `PermissionPrompt.tsx`
 
 ---
 
@@ -236,7 +264,9 @@ Config in `.lop/config.json`:
 
 CLI flag: `--approval-mode yolo`.
 
-**Files changed:** `src/protocol/types.ts`, `src/server/index.ts`, `permissionEngine.ts`
+TUI command: `/approval-mode [default|cautious|yolo]` — switches mode mid-session. Zero cost since `PermissionEngine` already holds the mode.
+
+**Files changed:** `src/protocol/types.ts`, `src/server/index.ts`, `permissionEngine.ts`, new `approvalModeCommand.ts`
 
 ---
 
@@ -264,7 +294,7 @@ Storage locations and trust hierarchy:
 
 ### 4.2 Rule matching
 
-- **bash**: glob match on command string — `bash(git *)` matches `git clone`, `git pull`
+- **bash**: glob match on command string — `bash(git *)` matches `git clone`, `git pull`. Match against the full command string after the base command.
 - **write / edit**: picomatch path pattern — `write(./src/**)`
 - **read**: path pattern
 - **mcp tools**: exact tool name match
@@ -305,7 +335,8 @@ rm -rf <any arg>                     → ask          Irreversible
 sudo <anything>                      → ask          Privilege escalation
 curl/wget <url> | bash               → deny         Pipe-to-shell
 eval "..."                           → deny         Arbitrary execution
-env / printenv / echo $VAR           → ask          Secrets exfiltration
+env / printenv                        → ask          Secrets exfiltration (cautious only)
+echo $VAR with secret patterns       → ask          Secrets exfiltration (cautious only)
 cat ~/.ssh/* / cat .env              → ask          Secrets exfiltration
 git push --force (main|master)       → ask          Destructive git op
 chmod 777 ...                        → ask          Overly permissive
@@ -313,7 +344,9 @@ npm install / pip install            → ask          Package install
 npm run / pip exec                   → allow        Script execution (safe)
 ```
 
-Replace the flat list with a structured `BuiltinRule[]` with `pattern: RegExp`, `level`, and `reason` fields.
+Note: `env`, `printenv`, and `echo $VAR` are "ask" only in `cautious` mode — in `default` mode they are `allow` since they are common debugging operations.
+
+Replace the flat list with a structured `BuiltinRule[]` with `pattern: RegExp`, `level`, `reason` fields, and an optional `mode` field (when `"cautious"`, the rule only applies in cautious mode).
 
 **Files changed:** `src/server/security/policy.ts`
 
@@ -323,9 +356,8 @@ Replace the flat list with a structured `BuiltinRule[]` with `pattern: RegExp`, 
 
 | Phase | Content | Effort | Priority |
 |---|---|---|---|
-| 1 | Unify policy + path fix + serial checks | M (3–4h) | **P0** |
-| 2 | TUI confirmation prompt | M (4–6h) | **P0** |
-| 3 | Approval modes | S (1–2h) | **P0** |
+| 1+2 | Policy unification + TUI prompt (single PR) | L (6–8h) | **P0** |
+| 3 | Approval modes + `/approval-mode` command | S (1–2h) | **P0** |
 | 4 | Rule persistence | M (3–4h) | **P1** |
 | 5 | Policy heuristic improvements | S (2h) | **P1** |
 
