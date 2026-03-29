@@ -239,13 +239,12 @@ export class LLMClient {
                 : 'stop'
             this.log(`Stream completed, finishReason: ${finishReason}`)
 
-            // Extract token usage from Vercel AI SDK result
             const usage = await finalResult.usage
             const tokenUsage: TokenUsage | undefined = usage
                 ? {
                     promptTokens: usage.promptTokens ?? 0,
                     completionTokens: usage.completionTokens ?? 0,
-                    totalTokens: (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0),
+                    totalTokens: usage.totalTokens ?? 0,
                 }
                 : undefined
 
@@ -257,7 +256,7 @@ export class LLMClient {
         } catch (error: any) {
             this.log(`Error:`, error)
             this.log(`Error stack:`, error.stack)
-            yield { type: "done", finishReason: `error: ${error.message}`, usage: undefined }
+            yield { type: "done", finishReason: `error: ${error.message}` }
         }
     }
 }

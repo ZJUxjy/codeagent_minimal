@@ -2,6 +2,7 @@
 import { spawn, type ChildProcess } from "child_process"
 import * as readline from "readline"
 import type { JsonRpcRequest, JsonRpcNotification, LopConfig, Question, PermissionOutcome } from "../protocol/types.js"
+import type { TokenUsage } from "../llm.js"
 import { debugLog } from "../config.js"
 import { getGlobalLogger } from "../utils/logger.js"
 import { getErrorMessage } from "../utils/error.js"
@@ -37,7 +38,7 @@ export type ClientEvent =
   | { type: "reasoning_end" }
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; id: string; content: string; isError?: boolean }
-  | { type: "done"; finishReason: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }
+  | { type: "done"; finishReason: string; usage?: TokenUsage }
   | { type: "ask_question"; requestId: string; questions: Question[] }
   | { type: "permission_request"; requestId: string; toolName: string; summary: string }
   | { type: "context_compressed"; tokensBefore: number; tokensAfter: number }
@@ -155,11 +156,7 @@ export class Client {
         this.eventHandler({ type: "tool_result", id: p.id, content: p.content, isError: p.isError })
         break
       case "done":
-        this.eventHandler({
-          type: "done",
-          finishReason: p.finishReason,
-          ...(p.usage ? { usage: p.usage } : {}),
-        })
+        this.eventHandler({ type: "done", finishReason: p.finishReason, usage: p.usage })
         break
       case "ask_question":
         this.eventHandler({

@@ -9,9 +9,8 @@ import type { LopConfig, Provider, Question } from "../protocol/types.js"
 import type { QuestionBridge } from "./questionBridge.js"
 import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
-import { truncateMessages, convertToolMessages } from "./utils/truncateMessages.js"
+import { truncateMessages, convertToolMessages, estimateTokens, CHARS_PER_TOKEN, DEFAULT_MAX_TOKENS } from "./utils/truncateMessages.js"
 import { shouldCompress, compressContext, type CompressionOptions } from "./compression/index.js"
-import { estimateTokens, CHARS_PER_TOKEN, DEFAULT_MAX_TOKENS } from "./utils/truncateMessages.js"
 import { FileIndexManager } from "./indexing/fileIndexManager.js"
 import type { Skill } from "./skills/types.js"
 import { buildSkillsPromptSection } from "./skills/loader.js"
@@ -178,10 +177,6 @@ export class Agent {
             this.buildSkillsPrompt(this.skills),
         ].filter((p): p is string => Boolean(p && p.trim()))
         const systemTokens = Math.ceil(systemParts.join("\n\n").length / CHARS_PER_TOKEN)
-
-        const usedTokens = this.totalUsage.promptTokens > 0
-            ? this.totalUsage.promptTokens
-            : messageTokens + toolDefTokens + systemTokens
 
         return {
             systemTokens,
@@ -363,7 +358,7 @@ export class Agent {
                 }
 
                 if (pendingToolEvents.length === 0 || finishReason.startsWith("error")) {
-                    yield { type: "done", finishReason, usage: this.totalUsage }
+                    yield { type: "done", finishReason, usage: { ...this.totalUsage } }
                     return
                 }
             }

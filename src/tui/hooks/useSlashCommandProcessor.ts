@@ -4,6 +4,7 @@ import { BuiltinCommandLoader } from '../../commands/loaders/BuiltinCommandLoade
 import { SkillCommandLoader } from '../../commands/loaders/SkillCommandLoader.js'
 import { parseCommand, isCommand } from '../utils/commandParser.js'
 import type { Client } from '../../client/index.js'
+import type { TokenUsage } from '../../llm.js'
 import type { LopConfig } from '../../protocol/types.js'
 import type { Message, ToolStats } from '../types.js'
 import type {
@@ -34,7 +35,7 @@ export interface UseSlashCommandProcessorOptions {
         /** 获取工具使用统计 */
         getToolStats: () => ToolStats
         /** 获取 token 使用统计 */
-        getTokenUsage: () => { promptTokens: number; completionTokens: number; totalTokens: number }
+        getTokenUsage: () => TokenUsage
     }
 
     /** 退出应用 */

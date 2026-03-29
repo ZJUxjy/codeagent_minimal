@@ -232,7 +232,6 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 setBtwItem(prev => prev ? { ...prev, isStreaming: false } : null)
                 break
             case 'done':
-                // Accumulate token usage
                 if (event.usage) {
                     setTokenUsage(prev => ({
                         promptTokens: prev.promptTokens + (event.usage?.promptTokens ?? 0),

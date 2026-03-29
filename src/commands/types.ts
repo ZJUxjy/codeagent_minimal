@@ -1,4 +1,5 @@
 import type { Client } from '../client/index.js'
+import type { TokenUsage } from '../llm.js'
 import type { LopConfig } from '../protocol/types.js'
 import type { Message, ToolStats } from '../tui/types.js'
 
@@ -35,7 +36,7 @@ export interface CommandContext {
     getToolStats: () => ToolStats
 
     /** 获取 token 使用统计 */
-    getTokenUsage: () => { promptTokens: number; completionTokens: number; totalTokens: number }
+    getTokenUsage: () => TokenUsage
 
     /** 退出应用 */
     quit: () => void
