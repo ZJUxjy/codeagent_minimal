@@ -14,6 +14,7 @@ import { approvalModeCommand } from './approvalModeCommand.js'
 import { instructionsCommand } from './instructionsCommand.js'
 import { compressCommand } from './compressCommand.js'
 import { btwCommand } from './btwCommand.js'
+import { contextCommand } from './contextCommand.js'
 import type { SlashCommand } from '../types.js'
 
 export {
@@ -33,6 +34,7 @@ export {
     instructionsCommand,
     compressCommand,
     btwCommand,
+    contextCommand,
 }
 
 export const allBuiltinCommands: SlashCommand[] = [
@@ -52,4 +54,5 @@ export const allBuiltinCommands: SlashCommand[] = [
     instructionsCommand,
     compressCommand,
     btwCommand,
+    contextCommand,
 ]

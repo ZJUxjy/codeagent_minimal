@@ -31,12 +31,18 @@ export interface LLMConfig {
     debug?: boolean
 }
 
+export interface TokenUsage {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+}
+
 export type StreamEvent =
     | { type: "content"; delta: string }
     | { type: "reasoning"; delta: string }
     | { type: "reasoning_end" }
     | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
-    | { type: "done"; finishReason: string }
+    | { type: "done"; finishReason: string; usage?: TokenUsage }
 
 export class LLMClient {
     private config: LLMConfig
@@ -232,14 +238,26 @@ export class LLMClient {
                 ? finalResult.finishReason
                 : 'stop'
             this.log(`Stream completed, finishReason: ${finishReason}`)
+
+            // Extract token usage from Vercel AI SDK result
+            const usage = await finalResult.usage
+            const tokenUsage: TokenUsage | undefined = usage
+                ? {
+                    promptTokens: usage.promptTokens ?? 0,
+                    completionTokens: usage.completionTokens ?? 0,
+                    totalTokens: (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0),
+                }
+                : undefined
+
             yield {
                 type: "done",
                 finishReason,
+                usage: tokenUsage,
             }
         } catch (error: any) {
             this.log(`Error:`, error)
             this.log(`Error stack:`, error.stack)
-            yield { type: "done", finishReason: `error: ${error.message}` }
+            yield { type: "done", finishReason: `error: ${error.message}`, usage: undefined }
         }
     }
 }

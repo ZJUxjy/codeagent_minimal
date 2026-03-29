@@ -34,6 +34,9 @@ export interface CommandContext {
     /** 获取工具使用统计 */
     getToolStats: () => ToolStats
 
+    /** 获取 token 使用统计 */
+    getTokenUsage: () => { promptTokens: number; completionTokens: number; totalTokens: number }
+
     /** 退出应用 */
     quit: () => void
 

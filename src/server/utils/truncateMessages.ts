@@ -31,7 +31,7 @@ export function convertToolMessages(messages: CoreMessage[]): CoreMessage[] {
 }
 
 /** Conservative estimate: ~3.5 chars per token for mixed code/text */
-const CHARS_PER_TOKEN = 3.5
+export const CHARS_PER_TOKEN = 3.5
 
 /** Leave room for system prompt, tool definitions, and model response */
 export const DEFAULT_MAX_TOKENS = 100_000

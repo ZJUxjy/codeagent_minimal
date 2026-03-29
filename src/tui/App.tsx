@@ -67,6 +67,9 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
     // btw side-question state
     const [btwItem, setBtwItem] = useState<{ question: string; answer: string; isStreaming: boolean } | null>(null)
 
+    // Token usage tracking
+    const [tokenUsage, setTokenUsage] = useState<{ promptTokens: number; completionTokens: number; totalTokens: number }>({ promptTokens: 0, completionTokens: 0, totalTokens: 0 })
+
     // Terminal resize: clear screen via Ink instance and force Static remount
     const { stdout } = useStdout()
     const [resizeKey, setResizeKey] = useState(0)
@@ -229,6 +232,14 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 setBtwItem(prev => prev ? { ...prev, isStreaming: false } : null)
                 break
             case 'done':
+                // Accumulate token usage
+                if (event.usage) {
+                    setTokenUsage(prev => ({
+                        promptTokens: prev.promptTokens + (event.usage?.promptTokens ?? 0),
+                        completionTokens: prev.completionTokens + (event.usage?.completionTokens ?? 0),
+                        totalTokens: prev.totalTokens + (event.usage?.totalTokens ?? 0),
+                    }))
+                }
                 getGlobalLogger().info('done',`${streamingRef.current.slice(0,20)}`)
                 if (streamingRef.current) {
                     setMessages(prev => [...prev, {
@@ -279,6 +290,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         clearMessages: () => setMessages([]),
         setLoading: (loading: boolean) => setIsLoading(loading),
         getToolStats: () => toolStats,
+        getTokenUsage: () => tokenUsage,
     }
 
     const config: LopConfig & { cwd: string } = {

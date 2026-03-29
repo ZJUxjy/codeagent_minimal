@@ -1,6 +1,6 @@
 // src/server/agent.ts
 import type { CoreMessage, ToolContent, TextPart, ToolCallPart } from "ai"
-import { LLMClient } from "../llm.js"
+import { LLMClient, type TokenUsage } from "../llm.js"
 import { ToolRegistry, type ToolRegistryOptions } from "./tools/index.js"
 import { InMemoryStore, type MessageStore } from "./store.js"
 import { noopHooks, type AgentHooks, type ToolCall } from "./hooks/types.js"
@@ -11,6 +11,7 @@ import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
 import { truncateMessages, convertToolMessages } from "./utils/truncateMessages.js"
 import { shouldCompress, compressContext, type CompressionOptions } from "./compression/index.js"
+import { estimateTokens, CHARS_PER_TOKEN, DEFAULT_MAX_TOKENS } from "./utils/truncateMessages.js"
 import { FileIndexManager } from "./indexing/fileIndexManager.js"
 import type { Skill } from "./skills/types.js"
 import { buildSkillsPromptSection } from "./skills/loader.js"
@@ -44,11 +45,23 @@ export type AgentEvent =
     | { type: "reasoning_end" }
     | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
     | { type: "tool_result"; id: string; content: string; isError?: boolean }
-    | { type: "done"; finishReason: string }
+    | { type: "done"; finishReason: string; usage?: TokenUsage }
     | { type: "context_compressed"; tokensBefore: number; tokensAfter: number }
 
 /** Config needed to spawn a child Agent (no store/tools). */
 export type AgentConfigSnapshot = Omit<AgentConfig, "store" | "tools">
+
+export interface ContextBreakdown {
+    systemTokens: number
+    toolDefTokens: number
+    messageTokens: number
+    totalTokensUsed: number
+    promptTokens: number
+    completionTokens: number
+    estimatedContextFree: number
+    maxContextTokens: number
+    messageCount: number
+}
 
 export class Agent {
     private llm: LLMClient
@@ -64,6 +77,9 @@ export class Agent {
     private skills: Skill[]
 
     private projectInstructions?: string
+
+    /** Accumulated token usage across all turns in this session. */
+    private totalUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
     constructor(config: AgentConfig) {
         const { store, tools, mcpConfig, maxTurns, hooks, questionBridge, projectInstructions, ...snapshot } = config
@@ -144,6 +160,40 @@ export class Agent {
     /** Snapshot current conversation history (for btw side-questions). */
     getStoreMessages(): CoreMessage[] {
         return this.store.getAll()
+    }
+
+    /** Get accumulated token usage for this session. */
+    getTokenUsage(): TokenUsage {
+        return { ...this.totalUsage }
+    }
+
+    /** Get context breakdown for /context command. */
+    getContextInfo(): ContextBreakdown {
+        const messages = this.store.getAll()
+        const messageTokens = messages.reduce((s, m) => s + estimateTokens(m), 0)
+        const toolDefs = this.tools.getToolDefinitions()
+        const toolDefTokens = Math.ceil(JSON.stringify(toolDefs).length / CHARS_PER_TOKEN)
+        const systemParts = [
+            this.projectInstructions,
+            this.buildSkillsPrompt(this.skills),
+        ].filter((p): p is string => Boolean(p && p.trim()))
+        const systemTokens = Math.ceil(systemParts.join("\n\n").length / CHARS_PER_TOKEN)
+
+        const usedTokens = this.totalUsage.promptTokens > 0
+            ? this.totalUsage.promptTokens
+            : messageTokens + toolDefTokens + systemTokens
+
+        return {
+            systemTokens,
+            toolDefTokens,
+            messageTokens,
+            totalTokensUsed: this.totalUsage.totalTokens,
+            promptTokens: this.totalUsage.promptTokens,
+            completionTokens: this.totalUsage.completionTokens,
+            estimatedContextFree: Math.max(0, DEFAULT_MAX_TOKENS - messageTokens - toolDefTokens - systemTokens),
+            maxContextTokens: DEFAULT_MAX_TOKENS,
+            messageCount: messages.length,
+        }
     }
 
     async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
@@ -253,6 +303,11 @@ export class Agent {
 
                     } else if (event.type === "done") {
                         finishReason = event.finishReason
+                        if (event.usage) {
+                            this.totalUsage.promptTokens += event.usage.promptTokens
+                            this.totalUsage.completionTokens += event.usage.completionTokens
+                            this.totalUsage.totalTokens += event.usage.totalTokens
+                        }
                     }
                 }
 
@@ -308,12 +363,12 @@ export class Agent {
                 }
 
                 if (pendingToolEvents.length === 0 || finishReason.startsWith("error")) {
-                    yield { type: "done", finishReason }
+                    yield { type: "done", finishReason, usage: this.totalUsage }
                     return
                 }
             }
 
-            yield { type: "done", finishReason: "length" }
+            yield { type: "done", finishReason: "length", usage: this.totalUsage }
         } finally {
             this.activeSignal = undefined
         }

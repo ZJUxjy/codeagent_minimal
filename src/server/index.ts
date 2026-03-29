@@ -244,7 +244,10 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                             })
                             break
                         case "done":
-                            sendNotification("done", { finishReason: event.finishReason })
+                            sendNotification("done", {
+                                finishReason: event.finishReason,
+                                usage: event.usage,
+                            })
                             break
                         case "context_compressed":
                             sendNotification("context_compressed", { tokensBefore: event.tokensBefore, tokensAfter: event.tokensAfter })
@@ -428,6 +431,15 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 totalSize,
                 totalSizeFormatted: formatInstructionSize(totalSize),
             })
+            break
+        }
+
+        case "context_info": {
+            if (!agent) {
+                sendError(requestId, -32002, "Not initialized")
+                return
+            }
+            sendResponse(requestId, agent.getContextInfo())
             break
         }
 

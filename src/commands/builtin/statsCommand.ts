@@ -33,6 +33,7 @@ export const statsCommand: SlashCommand = {
             '',
             'Use /stats model for model details',
             'Use /stats tools for tool usage',
+            'Use /context for token statistics',
         ]
 
         return {

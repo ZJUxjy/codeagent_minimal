@@ -37,7 +37,7 @@ export type ClientEvent =
   | { type: "reasoning_end" }
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; id: string; content: string; isError?: boolean }
-  | { type: "done"; finishReason: string }
+  | { type: "done"; finishReason: string; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }
   | { type: "ask_question"; requestId: string; questions: Question[] }
   | { type: "permission_request"; requestId: string; toolName: string; summary: string }
   | { type: "context_compressed"; tokensBefore: number; tokensAfter: number }
@@ -155,7 +155,11 @@ export class Client {
         this.eventHandler({ type: "tool_result", id: p.id, content: p.content, isError: p.isError })
         break
       case "done":
-        this.eventHandler({ type: "done", finishReason: p.finishReason })
+        this.eventHandler({
+          type: "done",
+          finishReason: p.finishReason,
+          ...(p.usage ? { usage: p.usage } : {}),
+        })
         break
       case "ask_question":
         this.eventHandler({
@@ -295,6 +299,11 @@ export class Client {
   /** Cancel an in-flight btw request */
   async interruptBtw(): Promise<void> {
     await this.sendRequest("interrupt_btw")
+  }
+
+  /** Get context window breakdown */
+  async contextInfo(): Promise<Record<string, number>> {
+    return this.sendRequest("context_info")
   }
 
   /** 关闭客户端 */
