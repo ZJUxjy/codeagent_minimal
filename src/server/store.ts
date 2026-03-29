@@ -4,6 +4,7 @@ export interface MessageStore{
     add(message:CoreMessage):void
     getAll():CoreMessage[]
     clear():void
+    replaceAll(messages:CoreMessage[]):void
 }
 
 export class InMemoryStore implements MessageStore{
@@ -19,5 +20,9 @@ export class InMemoryStore implements MessageStore{
 
     clear(): void {
         this.messages=[]
+    }
+
+    replaceAll(messages:CoreMessage[]):void{
+        this.messages=[...messages]
     }
 }

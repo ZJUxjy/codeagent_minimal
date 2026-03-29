@@ -241,6 +241,9 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                         case "done":
                             sendNotification("done", { finishReason: event.finishReason })
                             break
+                        case "context_compressed":
+                            sendNotification("context_compressed", { tokensBefore: event.tokensBefore, tokensAfter: event.tokensAfter })
+                            break
                     }
                 }
                 sendResponse(requestId, {})
@@ -395,6 +398,16 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             } catch (error: any) {
                 sendError(requestId, -32000, error.message)
             }
+            break
+        }
+
+        case "compress": {
+            if (!agent) {
+                sendError(requestId, -32002, "Not initialized")
+                return
+            }
+            const result = await agent.forceCompress()
+            sendResponse(requestId, result)
             break
         }
 

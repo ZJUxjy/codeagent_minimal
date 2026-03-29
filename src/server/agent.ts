@@ -10,6 +10,7 @@ import type { QuestionBridge } from "./questionBridge.js"
 import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
 import { truncateMessages, convertToolMessages } from "./utils/truncateMessages.js"
+import { shouldCompress, compressContext, type CompressionOptions } from "./compression/index.js"
 import { FileIndexManager } from "./indexing/fileIndexManager.js"
 import type { Skill } from "./skills/types.js"
 import { buildSkillsPromptSection } from "./skills/loader.js"
@@ -44,6 +45,7 @@ export type AgentEvent =
     | { type: "tool_call"; id: string; name: string; args: Record<string, unknown> }
     | { type: "tool_result"; id: string; content: string; isError?: boolean }
     | { type: "done"; finishReason: string }
+    | { type: "context_compressed"; tokensBefore: number; tokensAfter: number }
 
 /** Config needed to spawn a child Agent (no store/tools). */
 export type AgentConfigSnapshot = Omit<AgentConfig, "store" | "tools">
@@ -189,11 +191,22 @@ export class Agent {
             }
         }
 
+        const compressionOpts: CompressionOptions = {}
+
         try {
             for (let turn = 0; turn < this.maxTurns; turn++) {
                 if (isAborted()) {
                     yield { type: "done", finishReason: "interrupted" }
                     return
+                }
+
+                if (shouldCompress(store.getAll(), compressionOpts)) {
+                    const result = await compressContext(store, this.llm, signal)
+                    if (result.status === "compressed") {
+                        yield { type: "context_compressed", tokensBefore: result.tokensBefore!, tokensAfter: result.tokensAfter! }
+                    } else if (result.status === "failed_empty" || result.status === "failed_inflated") {
+                        compressionOpts.failedLastAttempt = true
+                    }
                 }
 
                 const stream = this.llm.stream(
@@ -333,6 +346,11 @@ export class Agent {
         if (this.tools.get("skill")) {
             this.tools.register(createSkillTool(skills))
         }
+    }
+
+    /** Force context compression (skips threshold check). Used by /compress command. */
+    async forceCompress(): Promise<{ status: string; tokensBefore?: number; tokensAfter?: number }> {
+        return compressContext(this.store, this.llm)
     }
 
     clearHistory(): void {

@@ -155,6 +155,12 @@ export const PermissionResponseParamsSchema = z.object({
 export type PermissionOutcome = "allow" | "always" | "deny"
 export type PermissionResponseParams = z.infer<typeof PermissionResponseParamsSchema>
 
+/** context_compressed 通知 */
+export interface ContextCompressedNotification extends JsonRpcNotification {
+    method: "context_compressed"
+    params: { tokensBefore: number; tokensAfter: number }
+}
+
 /** 所有通知类型的联合 */
 export type ServerNotification =
     | ContentNotification
@@ -165,6 +171,7 @@ export type ServerNotification =
     | DoneNotification
     | AskQuestionNotification
     | PermissionRequestNotification
+    | ContextCompressedNotification
 
 /** Provider type */
 export type Provider = "openai" | "anthropic" | "openrouter" | "minimax" | "google" | "kimi" | "glm"

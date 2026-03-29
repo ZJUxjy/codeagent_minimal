@@ -109,6 +109,39 @@ export class FileStore implements MessageStore {
     index.updateSession(this.sessionId, { messageCount: 0, updatedAt: new Date().toISOString() });
   }
 
+  /** Replace all messages in the store (e.g. after context compression). Preserves meta records. */
+  replaceAll(messages: CoreMessage[]): void {
+    const metaRecords = this.records.filter(r => r.type === 'meta');
+    let lastUuid = metaRecords.length > 0 ? metaRecords[metaRecords.length - 1].uuid : null;
+    const newRecords: typeof this.records = [...metaRecords];
+    const now = new Date().toISOString();
+
+    for (const message of messages) {
+      const uuid = randomUUID();
+      newRecords.push({
+        uuid,
+        parentUuid: lastUuid,
+        sessionId: this.sessionId,
+        timestamp: now,
+        type: this.inferType(message),
+        cwd: this.cwd,
+        message,
+      });
+      lastUuid = uuid;
+    }
+
+    this.records = newRecords;
+    this.lastUuid = lastUuid;
+
+    writeFileSync(this.filePath, '');
+    for (const r of this.records) {
+      writeLineSync(this.filePath, r);
+    }
+
+    const index = new SessionIndex(this.sessionDir);
+    index.updateSession(this.sessionId, { messageCount: messages.length, updatedAt: now });
+  }
+
   getSessionId(): string {
     return this.sessionId;
   }

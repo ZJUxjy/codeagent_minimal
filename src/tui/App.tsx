@@ -210,6 +210,14 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     }]
                 })
                 break
+            case 'context_compressed':
+                setMessages(prev => [...prev, {
+                    id: `system-${Date.now()}`,
+                    role: 'assistant' as const,
+                    content: `ℹ️ Context compressed: ~${Math.round(event.tokensBefore / 1000)}K → ~${Math.round(event.tokensAfter / 1000)}K estimated tokens (session was approaching limit).`,
+                    timestamp: Date.now(),
+                }])
+                break
             case 'done':
                 getGlobalLogger().info('done',`${streamingRef.current.slice(0,20)}`)
                 if (streamingRef.current) {

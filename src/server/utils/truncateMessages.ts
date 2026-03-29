@@ -34,9 +34,9 @@ export function convertToolMessages(messages: CoreMessage[]): CoreMessage[] {
 const CHARS_PER_TOKEN = 3.5
 
 /** Leave room for system prompt, tool definitions, and model response */
-const DEFAULT_MAX_TOKENS = 100_000
+export const DEFAULT_MAX_TOKENS = 100_000
 
-function estimateTokens(msg: CoreMessage): number {
+export function estimateTokens(msg: CoreMessage): number {
     const text = typeof msg.content === "string"
         ? msg.content
         : JSON.stringify(msg.content)

@@ -40,6 +40,7 @@ export type ClientEvent =
   | { type: "done"; finishReason: string }
   | { type: "ask_question"; requestId: string; questions: Question[] }
   | { type: "permission_request"; requestId: string; toolName: string; summary: string }
+  | { type: "context_compressed"; tokensBefore: number; tokensAfter: number }
 
 export class Client {
   private server: ChildProcess
@@ -169,6 +170,13 @@ export class Client {
           summary: p.summary,
         })
         break
+      case "context_compressed":
+        this.eventHandler({
+          type: "context_compressed",
+          tokensBefore: p.tokensBefore,
+          tokensAfter: p.tokensAfter,
+        })
+        break
       default:
         console.warn(`Unknown notification method: ${method}`)
     }
@@ -255,6 +263,11 @@ export class Client {
   /** 重命名会话（设置标题） */
   async renameSession(sessionId: string, title: string): Promise<{ sessionId: string; title: string }> {
     return this.sendRequest('rename_session', { sessionId, title })
+  }
+
+  /** Manually trigger context compression */
+  async compress(): Promise<{ status: string; tokensBefore?: number; tokensAfter?: number }> {
+    return this.sendRequest("compress")
   }
 
   /** Get currently loaded instruction files */

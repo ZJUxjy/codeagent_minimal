@@ -1,4 +1,4 @@
-import { streamText } from "ai"
+import { streamText, generateText } from "ai"
 import { openai, createOpenAI } from "@ai-sdk/openai"
 import { anthropic, createAnthropic } from "@ai-sdk/anthropic"
 import { google } from "@ai-sdk/google"
@@ -102,6 +102,21 @@ export class LLMClient {
             default:
                 throw new Error(`Unknown provider: ${this.config.provider}`)
         }
+    }
+
+    /**
+     * Non-streaming completion — returns the full text response.
+     * Used for context compression summarization.
+     */
+    async complete(systemPrompt: string, messages: CoreMessage[], signal?: AbortSignal): Promise<string> {
+        const model = this.getModel()
+        const result = await generateText({
+            model,
+            system: systemPrompt,
+            messages,
+            abortSignal: signal,
+        })
+        return result.text
     }
 
     /**
