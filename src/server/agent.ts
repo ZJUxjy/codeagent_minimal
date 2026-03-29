@@ -141,6 +141,11 @@ export class Agent {
         return this.tools.getMcpManager()
     }
 
+    /** Snapshot current conversation history (for btw side-questions). */
+    getStoreMessages(): CoreMessage[] {
+        return this.store.getAll()
+    }
+
     async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
         this.store.add({ role: "user", content: userMessage })
         yield* this.runLoop(signal)
@@ -357,7 +362,6 @@ export class Agent {
         this.store.clear()
     }
 
-    /** 替换底层 store（用于 /load 命令加载历史会话） */
     replaceStore(newStore: MessageStore): void {
         this.store = newStore
     }

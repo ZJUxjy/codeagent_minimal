@@ -49,6 +49,7 @@ export type ProcessResult =
     | { type: 'handled' }
     | { type: 'submit_prompt'; content: string }
     | { type: 'quit' }
+    | { type: 'btw'; question: string }
 
 /**
  * Hook 返回值
@@ -175,6 +176,9 @@ function handleCommandResult(
 
         case 'submit_prompt':
             return { type: 'submit_prompt', content: result.content }
+
+        case 'btw':
+            return { type: 'btw', question: result.question }
 
         default:
             return { type: 'handled' }

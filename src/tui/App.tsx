@@ -7,6 +7,7 @@ import { InputBox } from './components/InputBox.js'
 import { LoadingIndicator } from './components/LoadingIndicator.js'
 import { AskQuestionDialog } from './components/AskQuestionDialog.js'
 import { PermissionPrompt } from './components/PermissionPrompt.js'
+import { BtwMessage } from './components/BtwMessage.js'
 import { useClient } from './hooks/useClient.js'
 import { useSlashCommandProcessor } from './hooks/useSlashCommandProcessor.js'
 import type { Message, StreamingState, ToolStats, PendingToolCall } from './types.js'
@@ -62,6 +63,9 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         thinkingContent: '',
         isThinkingStreaming: false,
     })
+
+    // btw side-question state
+    const [btwItem, setBtwItem] = useState<{ question: string; answer: string; isStreaming: boolean } | null>(null)
 
     // Terminal resize: clear screen via Ink instance and force Static remount
     const { stdout } = useStdout()
@@ -218,6 +222,12 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     timestamp: Date.now(),
                 }])
                 break
+            case 'btw_content':
+                setBtwItem(prev => prev ? { ...prev, answer: prev.answer + event.delta } : null)
+                break
+            case 'btw_done':
+                setBtwItem(prev => prev ? { ...prev, isStreaming: false } : null)
+                break
             case 'done':
                 getGlobalLogger().info('done',`${streamingRef.current.slice(0,20)}`)
                 if (streamingRef.current) {
@@ -321,6 +331,15 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     setIsLoading(false)
                 }
                 break
+            case 'btw':
+                if (!client) return
+                setBtwItem({ question: result.question, answer: '', isStreaming: true })
+                client.btw(result.question).catch(err => {
+                    setBtwItem(prev => prev
+                        ? { ...prev, isStreaming: false, answer: prev.answer || `Error: ${getErrorMessage(err)}` }
+                        : null)
+                })
+                break
         }
     }, [client, config.cwd, processInput, exit])
 
@@ -364,6 +383,17 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         }
     }, [client])
 
+    const handleBtwDismiss = useCallback(() => {
+        setBtwItem(null)
+    }, [])
+
+    const handleBtwCancel = useCallback(async () => {
+        setBtwItem(null)
+        if (client) {
+            await client.interruptBtw()
+        }
+    }, [client])
+
     return (
         <ThemeProvider themeId={themeId}>
             {error ? (
@@ -403,6 +433,15 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                             questions={pendingQuestion.questions}
                             onSubmit={handleQuestionSubmit}
                             onCancel={handleQuestionCancel}
+                        />
+                    )}
+                    {btwItem && (
+                        <BtwMessage
+                            question={btwItem.question}
+                            answer={btwItem.answer}
+                            isStreaming={btwItem.isStreaming}
+                            onDismiss={handleBtwDismiss}
+                            onCancel={handleBtwCancel}
                         />
                     )}
                     <InputBox

@@ -41,6 +41,8 @@ export type ClientEvent =
   | { type: "ask_question"; requestId: string; questions: Question[] }
   | { type: "permission_request"; requestId: string; toolName: string; summary: string }
   | { type: "context_compressed"; tokensBefore: number; tokensAfter: number }
+  | { type: "btw_content"; delta: string }
+  | { type: "btw_done"; finishReason: string }
 
 export class Client {
   private server: ChildProcess
@@ -177,6 +179,12 @@ export class Client {
           tokensAfter: p.tokensAfter,
         })
         break
+      case "btw_content":
+        this.eventHandler({ type: "btw_content", delta: p.delta })
+        break
+      case "btw_done":
+        this.eventHandler({ type: "btw_done", finishReason: p.finishReason })
+        break
       default:
         console.warn(`Unknown notification method: ${method}`)
     }
@@ -277,6 +285,16 @@ export class Client {
     totalSizeFormatted: string
   }> {
     return this.sendRequest("get_instructions")
+  }
+
+  /** Ask a side question without affecting conversation history */
+  async btw(message: string): Promise<void> {
+    await this.sendRequest("btw", { message })
+  }
+
+  /** Cancel an in-flight btw request */
+  async interruptBtw(): Promise<void> {
+    await this.sendRequest("interrupt_btw")
   }
 
   /** 关闭客户端 */

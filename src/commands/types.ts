@@ -56,6 +56,7 @@ export type SlashCommandActionReturn =
     | { type: 'message'; content: string; isError?: boolean }
     | { type: 'quit' }
     | { type: 'submit_prompt'; content: string }
+    | { type: 'btw'; question: string }
     | void
 
 /** Slash 命令接口 */
