@@ -1,0 +1,344 @@
+# Permission & Security System — Development Plan
+
+**Date:** 2026-03-29
+**Reviewed by:** Claude Opus 4.6
+**Scope:** Wire up and extend the existing permission scaffolding into a production-ready, user-facing permission system.
+
+---
+
+## Current State
+
+| File | Status | Gap |
+|---|---|---|
+| `src/server/security/policy.ts` | ✅ Exists | Pattern matching works; but `"ask"` is treated as `"deny"` (no prompt) |
+| `src/server/hooks/types.ts` | ✅ `beforeToolExecute` defined | Returns `PolicyDecision`, no prompt mechanism |
+| `src/server/agent.ts` | ⚠️ Has two policy checks | Lines 285-291: inline `evaluateToolPolicy` (treats "ask" as deny); lines 293-298: hook check (ignores "ask"). Both must be **replaced** by a single unified path |
+| `src/server/tools/bash.ts` | ✅ Executes commands | No policy check at call site (correctly delegated to agent.ts) |
+| TUI | — | No confirmation prompt component exists |
+
+The core problem: `"ask"` decisions have no user-facing prompt — they silently become denials. The goal is to replace silent denial with an actual interactive choice, and unify the two redundant policy checks in `agent.ts` into a single hook-based path.
+
+> **⚠️ Double-evaluation risk:** `agent.ts` currently calls `evaluateToolPolicy` inline (lines 285-291) AND calls `hooks.beforeToolExecute` (lines 293-298). Phase 1 must **remove** the inline call, not add yet another check alongside it.
+
+---
+
+## Design Goals
+
+1. **Minimal friction for safe operations** — read-only and common tools never interrupt
+2. **Confirm before dangerous operations** — interactive prompt with Allow / Always Allow / Deny
+3. **Persistent "always allow" rules** — decisions survive session restarts
+4. **Approval modes** — power users can set `yolo` (never ask) or `cautious` (ask for all writes)
+5. **No AST dependency in v1** — pattern/regex matching is sufficient; tree-sitter can come later
+6. **Config-file rules** — allow/deny lists in `.lop/config.json` for CI/automated use
+
+---
+
+## Architecture Overview
+
+```
+Tool call arrives
+      │
+      ▼
+[PermissionEngine.check(toolName, args)]   ← all policy logic lives here
+      │
+   ┌──┴──────────────────────┐
+   │  1. Explicit deny rule?  │──► DENY (abort tool, return error to model)
+   │  2. Explicit allow rule? │──► ALLOW (execute immediately)
+   │  3. Built-in policy?     │──► "allow" / "ask" / "deny"
+   │     • approval mode      │
+   └──────────────────────────┘
+      │ "ask"
+      ▼
+[QuestionBridge.askPermission()]   ← TUI suspends agent loop, user responds
+      │
+      ├─ Allow Once   ──► execute, rule saved to sessionRules only
+      ├─ Always Allow ──► execute, rule saved to disk (Phase 4)
+      └─ Deny         ──► abort, return refusal to model
+```
+
+---
+
+## Phase 1: Unify and Wire Policy Execution
+
+**Goal:** Replace the two redundant policy checks with a single `PermissionEngine` path. Make "ask" prompt the user instead of silently denying.
+
+### 1.1 Path traversal fix (promote from Phase 6)
+
+Fix `policy.ts` **first** — before wiring prompts, because converting "ask"-as-deny to "ask"-as-prompt weakens the current path traversal protection.
+
+```typescript
+// BEFORE (bypassable with ./foo/../../etc/passwd):
+if (filePath.startsWith("..") || filePath.startsWith("/")) return "ask"
+
+// AFTER:
+const resolved = path.resolve(cwd, filePath)
+if (!resolved.startsWith(path.resolve(cwd) + path.sep)) return "ask"
+```
+
+Also add hard `"deny"` for sensitive system paths: `~/.ssh/`, `/etc/`, `.git/config`.
+
+### 1.2 Permission Engine (`src/server/security/permissionEngine.ts`)
+
+Wraps `evaluateToolPolicy` with session-rule awareness (disk persistence added in Phase 4):
+
+```typescript
+export class PermissionEngine {
+  private sessionRules: RuleSet = { allow: [], deny: [] }
+
+  constructor(private approvalMode: ApprovalMode) {}
+
+  check(toolName: string, args: Record<string, unknown>, cwd: string): PermissionLevel {
+    if (this.matchesRule(this.sessionRules.deny, toolName, args))  return "deny"
+    if (this.matchesRule(this.sessionRules.allow, toolName, args)) return "allow"
+
+    if (this.approvalMode === "yolo")     return "allow"
+    if (this.approvalMode === "cautious") return this.cautiousDefault(toolName)
+
+    return evaluateToolPolicy(toolName, args, cwd)  // pass cwd for path resolution
+  }
+
+  addSessionAllowRule(toolName: string, args: Record<string, unknown>): void { /* ... */ }
+}
+```
+
+"Always allow" in Phase 1 saves to session only; disk persistence is Phase 4.
+
+### 1.3 Hook implementation (`src/server/security/permissionHook.ts`)
+
+```typescript
+export function createPermissionHook(
+  engine: PermissionEngine,
+  bridge: QuestionBridge,
+): AgentHooks["beforeToolExecute"] {
+  return async (call, _tool) => {
+    const level = engine.check(call.name, call.args, cwd)
+    if (level === "allow") return "allow"
+    if (level === "deny")  return "deny"
+
+    const decision = await bridge.askPermission({
+      toolName: call.name,
+      args: call.args,
+      summary: summarizeToolCall(call),
+    })
+    if (decision === "always") engine.addSessionAllowRule(call.name, call.args)
+    return decision === "deny" ? "deny" : "allow"
+  }
+}
+```
+
+Timeout: if `bridge.askPermission` does not resolve within 60 seconds (e.g. user walks away), default to `"deny"`. Reuse existing abort signal pattern.
+
+### 1.4 Update `agent.ts` `executeTool`
+
+**Remove** the inline policy block (lines 285-291). All policy logic moves into the hook:
+
+```typescript
+// DELETE these lines:
+// const policyDecision = evaluateToolPolicy(call.name, call.args)
+// if (policyDecision === "deny") { ... }
+// if (policyDecision === "ask") { ... }
+
+// Keep and harden the hook check — treat anything not explicitly "allow" as deny:
+if (this.hooks.beforeToolExecute) {
+  const decision = await this.hooks.beforeToolExecute(call, tool)
+  if (decision !== "allow") {  // defensive: unknown values deny
+    return { content: "Permission denied.", isError: true }
+  }
+}
+```
+
+### 1.5 Serialize permission checks before parallel execution
+
+Tools run via `Promise.all` in `runLoop`. Two simultaneous "ask" prompts create a confusing UX. Pre-check permissions sequentially, then execute approved tools in parallel:
+
+```typescript
+// Pre-check all tool calls sequentially
+const decisions = new Map<string, PolicyDecision>()
+for (const call of pendingToolEvents) {
+  decisions.set(call.id, await permissionCheck(call))
+}
+// Execute approved tools in parallel
+const results = await Promise.all(
+  pendingToolEvents
+    .filter(call => decisions.get(call.id) === "allow")
+    .map(call => this.executeTool(call))
+)
+```
+
+Log every decision at debug level: `[permission] bash(rm -rf ./dist) → ask → denied by user`
+
+**Files changed:** `agent.ts`, `policy.ts`, new `permissionEngine.ts`, new `permissionHook.ts`
+
+---
+
+## Phase 2: TUI Confirmation Prompt
+
+**Goal:** Implement the interactive prompt that Phase 1 depends on. (Must precede Phase 3 — you cannot test approval modes without a working prompt.)
+
+### 2.1 Extend QuestionBridge
+
+```typescript
+export interface PermissionRequest {
+  toolName: string
+  args: Record<string, unknown>
+  summary: string      // e.g. "bash: rm -rf ./dist"
+}
+
+export type PermissionOutcome = "allow" | "always" | "deny"
+
+// Add to QuestionBridge:
+askPermission(req: PermissionRequest, signal?: AbortSignal): Promise<PermissionOutcome>
+```
+
+### 2.2 TUI PermissionPrompt component
+
+Inline in the message stream (reuses the existing question bridge pause pattern):
+
+```
+┌─ Permission Required ─────────────────────────┐
+│  bash: rm -rf ./dist                           │
+│                                                │
+│  [A] Allow once   [W] Always allow   [D] Deny  │
+└────────────────────────────────────────────────┘
+```
+
+Keyboard: `a` / `w` / `d`. Falls back to auto-deny after 60s timeout.
+
+Add `permissionRequest` as a new pending state variant in `sessionReducer`.
+
+**Files changed:** new `PermissionPrompt.tsx`, `questionBridge.ts`, `sessionReducer.ts`, `types.ts`
+
+---
+
+## Phase 3: Approval Modes
+
+**Goal:** Global setting controlling default behavior (now testable since prompt exists).
+
+```typescript
+export type ApprovalMode =
+  | "default"   // ask for dangerous ops (policy.ts behavior)
+  | "cautious"  // ask for all writes/edits/bash
+  | "yolo"      // allow everything — power users, CI
+  // NOTE: "plan" mode (read-only agent) is a separate feature, not a permission mode
+```
+
+Config in `.lop/config.json`:
+
+```json
+{
+  "approvalMode": "default",
+  "permissions": {
+    "allow": ["bash(git *)", "bash(npm run *)"],
+    "deny":  ["bash(rm -rf *)"]
+  }
+}
+```
+
+CLI flag: `--approval-mode yolo`.
+
+**Files changed:** `src/protocol/types.ts`, `src/server/index.ts`, `permissionEngine.ts`
+
+---
+
+## Phase 4: Rule Store & Persistence
+
+**Goal:** "Always allow" choices survive session restart. Session rules from Phase 1 are promoted to disk.
+
+### 4.1 Rule store (`src/server/security/ruleStore.ts`)
+
+```typescript
+export interface Rule {
+  tool: string          // e.g. "bash"
+  specifier?: string    // e.g. "git *"  (glob)
+  createdAt: string
+}
+
+export interface RuleSet { allow: Rule[]; deny: Rule[] }
+```
+
+Storage locations and trust hierarchy:
+- `~/.lop/permissions.json` — **user-level**: can add allow rules, set any approval mode
+- `.lop/permissions.json` — **project-level**: can only **restrict** (deny rules only); cannot add allow rules or override to `yolo`
+
+> **Trust boundary:** A malicious cloned repo could ship `.lop/permissions.json` with permissive allow rules. Project-level files are therefore restricted to deny-only to prevent this attack vector.
+
+### 4.2 Rule matching
+
+- **bash**: glob match on command string — `bash(git *)` matches `git clone`, `git pull`
+- **write / edit**: picomatch path pattern — `write(./src/**)`
+- **read**: path pattern
+- **mcp tools**: exact tool name match
+
+Use `picomatch` (already a transitive dep via `fast-glob`).
+
+### 4.3 `/permissions` command (view-only for v1)
+
+Expose rules without requiring manual rule editing (the TUI prompt is the primary creation path):
+
+```
+/permissions list     — show current session + persistent rules
+```
+
+Full add/remove commands deferred until clear user demand.
+
+**Files changed:** new `ruleStore.ts`, update `permissionEngine.ts` to load rules, new `permissionsCommand.ts`
+
+---
+
+## Phase 5: Built-in Policy Improvements
+
+**Goal:** Reduce false positives that cause unnecessary friction.
+
+### Problems with current `DANGEROUS_BASH_COMMANDS` flat list
+
+- `curl` triggers "ask" for `curl https://api.github.com` — benign read
+- `npm` triggers "ask" for `npm run test` — benign
+- `chmod` triggers for `chmod +x ./build.sh` — low risk
+
+### Better heuristics
+
+```
+Pattern                              → Permission   Reason
+────────────────────────────────────────────────────────────
+rm -rf / or rm -rf ~                 → deny         Catastrophic
+rm -rf <any arg>                     → ask          Irreversible
+sudo <anything>                      → ask          Privilege escalation
+curl/wget <url> | bash               → deny         Pipe-to-shell
+eval "..."                           → deny         Arbitrary execution
+env / printenv / echo $VAR           → ask          Secrets exfiltration
+cat ~/.ssh/* / cat .env              → ask          Secrets exfiltration
+git push --force (main|master)       → ask          Destructive git op
+chmod 777 ...                        → ask          Overly permissive
+npm install / pip install            → ask          Package install
+npm run / pip exec                   → allow        Script execution (safe)
+```
+
+Replace the flat list with a structured `BuiltinRule[]` with `pattern: RegExp`, `level`, and `reason` fields.
+
+**Files changed:** `src/server/security/policy.ts`
+
+---
+
+## Revised Implementation Order
+
+| Phase | Content | Effort | Priority |
+|---|---|---|---|
+| 1 | Unify policy + path fix + serial checks | M (3–4h) | **P0** |
+| 2 | TUI confirmation prompt | M (4–6h) | **P0** |
+| 3 | Approval modes | S (1–2h) | **P0** |
+| 4 | Rule persistence | M (3–4h) | **P1** |
+| 5 | Policy heuristic improvements | S (2h) | **P1** |
+
+Phases 1–3 are the MVP. Dangerous operations will prompt the user instead of silently failing.
+
+---
+
+## What We Intentionally Skip
+
+| Feature | Reason |
+|---|---|
+| AST-based shell parsing (tree-sitter) | Heavy dep; regex covers 95% of real cases |
+| Virtual operation extraction (shell→read/write mapping) | Too complex; v2 candidate |
+| Minimum-scope rule auto-generation | UX complexity; manual prompt is sufficient |
+| `"plan"` approval mode | Different feature (read-only agent), not a permission mode — design separately |
+| `/permissions allow` CLI command | TUI "Always allow" button is the natural creation path; manual add deferred |
