@@ -1,7 +1,7 @@
 // src/client/index.ts
 import { spawn, type ChildProcess } from "child_process"
 import * as readline from "readline"
-import type { JsonRpcRequest, JsonRpcNotification, LopConfig, Question } from "../protocol/types.js"
+import type { JsonRpcRequest, JsonRpcNotification, LopConfig, Question, PermissionOutcome } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 import { getGlobalLogger } from "../utils/logger.js"
 import { getErrorMessage } from "../utils/error.js"
@@ -27,6 +27,8 @@ export interface ClientOptions {
   persistence?: { enabled?: boolean }
   /** 技能路径配置 */
   skills?: LopConfig["skills"]
+  /** 权限审批模式 */
+  approvalMode?: LopConfig["approvalMode"]
 }
 
 export type ClientEvent =
@@ -37,6 +39,7 @@ export type ClientEvent =
   | { type: "tool_result"; id: string; content: string; isError?: boolean }
   | { type: "done"; finishReason: string }
   | { type: "ask_question"; requestId: string; questions: Question[] }
+  | { type: "permission_request"; requestId: string; toolName: string; summary: string }
 
 export class Client {
   private server: ChildProcess
@@ -60,6 +63,7 @@ export class Client {
     if (options.skills?.paths && options.skills.paths.length > 0) {
       env.LOP_SKILLS_PATHS = options.skills.paths.join(",")
     }
+    if (options.approvalMode) env.LOP_APPROVAL_MODE = options.approvalMode
 
     if (this.debug) {
       if (options.apiKey) {
@@ -157,6 +161,14 @@ export class Client {
           questions: p.questions,
         })
         break
+      case "permission_request":
+        this.eventHandler({
+          type: "permission_request",
+          requestId: p.requestId,
+          toolName: p.toolName,
+          summary: p.summary,
+        })
+        break
       default:
         console.warn(`Unknown notification method: ${method}`)
     }
@@ -198,6 +210,11 @@ export class Client {
   /** Interrupt the current execution */
   async interrupt(): Promise<void> {
     await this.sendRequest("interrupt")
+  }
+
+  /** Respond to a permission prompt */
+  async respondToPermission(requestId: string, outcome: PermissionOutcome): Promise<void> {
+    await this.sendRequest("permission_response", { requestId, outcome })
   }
 
   /** 清空对话历史 */

@@ -6,11 +6,12 @@ import { MessageList } from './components/MessageList.js'
 import { InputBox } from './components/InputBox.js'
 import { LoadingIndicator } from './components/LoadingIndicator.js'
 import { AskQuestionDialog } from './components/AskQuestionDialog.js'
+import { PermissionPrompt } from './components/PermissionPrompt.js'
 import { useClient } from './hooks/useClient.js'
 import { useSlashCommandProcessor } from './hooks/useSlashCommandProcessor.js'
 import type { Message, StreamingState, ToolStats, PendingToolCall } from './types.js'
 import type { ClientOptions } from '../client/index.js'
-import type { LopConfig, Question } from '../protocol/types.js'
+import type { LopConfig, Question, PermissionOutcome } from '../protocol/types.js'
 import type { ThemeId } from './themes/types.js'
 import {
     listBuiltinThemes,
@@ -48,6 +49,13 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         requestId: string
         questions: Question[]
     }>>([])
+
+    const [pendingPermissions, setPendingPermissions] = useState<Array<{
+        requestId: string
+        toolName: string
+        summary: string
+    }>>([])
+
 
     const [streaming, setStreaming] = useState<StreamingState>({
         content: '',
@@ -192,6 +200,16 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     }]
                 })
                 break
+            case 'permission_request':
+                setPendingPermissions(prev => {
+                    if (prev.some(p => p.requestId === event.requestId)) return prev
+                    return [...prev, {
+                        requestId: event.requestId,
+                        toolName: event.toolName,
+                        summary: event.summary,
+                    }]
+                })
+                break
             case 'done':
                 getGlobalLogger().info('done',`${streamingRef.current.slice(0,20)}`)
                 if (streamingRef.current) {
@@ -305,6 +323,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         setIsLoading(false)
         setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
         setPendingQuestions([])
+        setPendingPermissions([])
     }, [client])
 
     const pendingQuestion = pendingQuestions[0] ?? null
@@ -320,6 +339,14 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         await client.respondToQuestion(pendingQuestion.requestId, undefined, true)
         setPendingQuestions(prev => prev.slice(1))
     }, [client, pendingQuestion])
+
+    const pendingPermission = pendingPermissions[0] ?? null
+
+    const handlePermissionDecide = useCallback(async (outcome: PermissionOutcome) => {
+        if (!client || !pendingPermission) return
+        await client.respondToPermission(pendingPermission.requestId, outcome)
+        setPendingPermissions(prev => prev.slice(1))
+    }, [client, pendingPermission])
 
     const handleClear = useCallback(async () => {
         if (client) {
@@ -356,6 +383,13 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                             text={streaming.isThinkingStreaming ? "Thinking..." : undefined}
                         />
                     )}
+                    {pendingPermission && (
+                        <PermissionPrompt
+                            toolName={pendingPermission.toolName}
+                            summary={pendingPermission.summary}
+                            onDecide={handlePermissionDecide}
+                        />
+                    )}
                     {pendingQuestion && (
                         <AskQuestionDialog
                             questions={pendingQuestion.questions}
@@ -367,7 +401,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                         onSubmit={handleSubmit}
                         onClear={handleClear}
                         onInterrupt={handleInterrupt}
-                        disabled={isLoading || !isReady || pendingQuestion !== null}
+                        disabled={isLoading || !isReady || pendingQuestion !== null || pendingPermission !== null}
                         commands={registry.getVisibleCommands()}
                     />
                 </Box>

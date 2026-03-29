@@ -9,7 +9,9 @@ import { SessionIndex } from "./stores/SessionIndex.js"
 import { getSessionDir } from "./utils/storagePath.js"
 import type { MessageStore } from "./store.js"
 import { QuestionBridge } from "./questionBridge.js"
-import { AskQuestionResponseParamsSchema } from "../protocol/types.js"
+import { AskQuestionResponseParamsSchema, PermissionResponseParamsSchema } from "../protocol/types.js"
+import { PermissionEngine, type ApprovalMode } from "./security/permissionEngine.js"
+import { createPermissionHook } from "./security/permissionHook.js"
 import { loadSkills } from "./skills/index.js"
 import { SkillWatcher } from "./skills/watcher.js"
 
@@ -17,7 +19,14 @@ let agent: Agent | null = null
 let currentCwd = process.cwd()
 let currentAbortController: AbortController | null = null
 let questionBridge: QuestionBridge | null = null
+let permissionEngine: PermissionEngine | null = null
 let skillWatcher: SkillWatcher | undefined
+
+function getApprovalMode(): ApprovalMode {
+    const raw = process.env.LOP_APPROVAL_MODE
+    if (raw === "yolo" || raw === "cautious") return raw
+    return "default"
+}
 
 function isPersistenceEnabled(): boolean {
     const env = process.env.LOP_PERSISTENCE
@@ -127,7 +136,14 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             }
 
             questionBridge = new QuestionBridge(sendNotification)
-            agent = new Agent({ ...config, skills: skillResult.skills, questionBridge })
+            permissionEngine = new PermissionEngine(getApprovalMode(), currentCwd)
+            const permissionHook = createPermissionHook(permissionEngine, questionBridge)
+            agent = new Agent({
+                ...config,
+                skills: skillResult.skills,
+                questionBridge,
+                hooks: { beforeToolExecute: permissionHook },
+            })
 
             if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
                 agent.discoverMcpTools().catch((err) => {
@@ -171,7 +187,14 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 for (const diagnostic of skillResult.diagnostics) {
                     debugLog("skills", diagnostic)
                 }
-                agent = new Agent({ ...config, skills: skillResult.skills, questionBridge: questionBridge! })
+                permissionEngine = new PermissionEngine(getApprovalMode(), currentCwd)
+                const permHook = createPermissionHook(permissionEngine, questionBridge!)
+                agent = new Agent({
+                    ...config,
+                    skills: skillResult.skills,
+                    questionBridge: questionBridge!,
+                    hooks: { beforeToolExecute: permHook },
+                })
                 if (config.mcpConfig?.mcpServers && Object.keys(config.mcpConfig.mcpServers).length > 0) {
                     agent.discoverMcpTools().catch((err) => {
                         debugLog("server", "MCP discovery failed:", err)
@@ -226,6 +249,21 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             }
             if (questionBridge) {
                 questionBridge.cancelAll()
+            }
+            sendResponse(requestId, {})
+            break
+        }
+
+        case "permission_response": {
+            const parseResult = PermissionResponseParamsSchema.safeParse(params)
+            if (!parseResult.success) {
+                sendError(requestId, -32602, "Invalid params")
+                return
+            }
+            const handled = questionBridge?.handlePermissionResponse(parseResult.data) ?? false
+            if (!handled) {
+                sendError(requestId, -32004, "Unknown or expired permission requestId")
+                return
             }
             sendResponse(requestId, {})
             break

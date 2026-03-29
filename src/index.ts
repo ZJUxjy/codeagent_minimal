@@ -27,6 +27,11 @@ async function main() {
       cliOptions.theme = args[++i] as TuiThemeId;
     } else if (arg === '-r' || arg === '--resume') {
       cliOptions.resume = true;
+    } else if (arg === '--approval-mode') {
+      const mode = args[++i];
+      if (mode === 'default' || mode === 'cautious' || mode === 'yolo') {
+        cliOptions.approvalMode = mode;
+      }
     }
   }
 
@@ -42,6 +47,7 @@ async function main() {
     resume: cliOptions.resume,
     persistence: fileConfig.persistence,
     skills: fileConfig.skills,
+    approvalMode: cliOptions.approvalMode ?? fileConfig.approvalMode,
   };
 
   // 启动 TUI

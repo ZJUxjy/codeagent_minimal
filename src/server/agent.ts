@@ -7,7 +7,6 @@ import { noopHooks, type AgentHooks, type ToolCall } from "./hooks/types.js"
 import type { ToolContext } from "./tools/types.js"
 import type { LopConfig, Provider, Question } from "../protocol/types.js"
 import type { QuestionBridge } from "./questionBridge.js"
-import { evaluateToolPolicy } from "./security/policy.js"
 import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
 import { truncateMessages, convertToolMessages } from "./utils/truncateMessages.js"
@@ -236,9 +235,30 @@ export class Agent {
                 // Phase 2: persist assistant BEFORE tool results (correct message order)
                 persistAssistantStep(assistantContent, toolCallsThisTurn)
 
-                // Phase 3: execute tools in parallel, then write results in original order
+                // Phase 3a: serial permission pre-checks (one prompt at a time)
+                const permissionDecisions = new Map<string, boolean>()
+                for (const call of pendingToolEvents) {
+                    const tool = this.tools.get(call.name)
+                    if (this.hooks.beforeToolExecute && tool) {
+                        const decision = await this.hooks.beforeToolExecute(call, tool)
+                        permissionDecisions.set(call.id, decision === "allow")
+                    } else {
+                        permissionDecisions.set(call.id, true)
+                    }
+                }
+
+                if (isAborted()) {
+                    yield { type: "done", finishReason: "interrupted" }
+                    return
+                }
+
+                // Phase 3b: execute approved tools in parallel
                 const results = await Promise.all(
-                    pendingToolEvents.map(call => this.executeTool(call))
+                    pendingToolEvents.map(call =>
+                        permissionDecisions.get(call.id)
+                            ? this.executeTool(call)
+                            : Promise.resolve({ content: "Permission denied.", isError: true as const })
+                    )
                 )
 
                 if (isAborted()) {
@@ -282,21 +302,7 @@ export class Agent {
             return { content: `Error: Unknown tool '${call.name}'`, isError: true }
         }
 
-        const policyDecision = evaluateToolPolicy(call.name, call.args)
-        if (policyDecision === "deny") {
-            return { content: `Error: Tool execution denied by security policy`, isError: true }
-        }
-        if (policyDecision === "ask") {
-            return { content: `Error: Tool '${call.name}' requires user confirmation (security policy)`, isError: true }
-        }
-
-        if (this.hooks.beforeToolExecute) {
-            const decision = await this.hooks.beforeToolExecute(call, tool)
-            if (decision === "deny") {
-                return { content: `Error: Tool execution denied by policy`, isError: true }
-            }
-        }
-
+        // Permission check is done in the serial pre-check phase before this method is called.
         const ctx: ToolContext = {
             cwd: this.cwd,
             signal: this.activeSignal,

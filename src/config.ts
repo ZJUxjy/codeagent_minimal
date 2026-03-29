@@ -35,6 +35,8 @@ function normalizeConfig(config: any): LopConfig {
         persistence: config.persistence,
         // 技能配置
         skills: config.skills,
+        // 权限审批模式
+        approvalMode: config.approvalMode,
     }
 }
 

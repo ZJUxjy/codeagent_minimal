@@ -134,6 +134,27 @@ export const AskQuestionResponseParamsSchema = z.object({
 
 export type AskQuestionResponseParams = z.infer<typeof AskQuestionResponseParamsSchema>
 
+// ============ Permission Request 类型 ============
+
+/** permission_request 通知 (server → client) */
+export interface PermissionRequestNotification extends JsonRpcNotification {
+    method: "permission_request"
+    params: {
+        requestId: string
+        toolName: string
+        summary: string   // human-readable one-liner, e.g. "bash: rm -rf ./dist"
+    }
+}
+
+/** permission_response 请求参数 (client → server) */
+export const PermissionResponseParamsSchema = z.object({
+    requestId: z.string(),
+    outcome: z.enum(["allow", "always", "deny"]),
+})
+
+export type PermissionOutcome = "allow" | "always" | "deny"
+export type PermissionResponseParams = z.infer<typeof PermissionResponseParamsSchema>
+
 /** 所有通知类型的联合 */
 export type ServerNotification =
     | ContentNotification
@@ -143,6 +164,7 @@ export type ServerNotification =
     | ToolResultNotification
     | DoneNotification
     | AskQuestionNotification
+    | PermissionRequestNotification
 
 /** Provider type */
 export type Provider = "openai" | "anthropic" | "openrouter" | "minimax" | "google" | "kimi" | "glm"
@@ -169,6 +191,8 @@ export interface LopConfig {
     skills?: {
         paths?: string[]
     }
+    // 权限审批模式
+    approvalMode?: "default" | "cautious" | "yolo"
 }
 
 // MCP Server 配置
