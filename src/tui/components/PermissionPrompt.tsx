@@ -4,7 +4,6 @@ import { useTheme } from '../themes/ThemeContext.js'
 import type { PermissionOutcome } from '../../protocol/types.js'
 
 interface PermissionPromptProps {
-    toolName: string
     summary: string
     onDecide: (outcome: PermissionOutcome) => void
 }
