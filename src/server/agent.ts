@@ -33,6 +33,8 @@ export interface AgentConfig {
     questionBridge?: QuestionBridge
     /** Pre-loaded skills metadata. */
     skills?: Skill[]
+    /** Pre-loaded project instruction content. */
+    projectInstructions?: string
 }
 
 export type AgentEvent =
@@ -59,8 +61,10 @@ export class Agent {
     private fileIndex: FileIndexManager
     private skills: Skill[]
 
+    private projectInstructions?: string
+
     constructor(config: AgentConfig) {
-        const { store, tools, mcpConfig, maxTurns, hooks, questionBridge, ...snapshot } = config
+        const { store, tools, mcpConfig, maxTurns, hooks, questionBridge, projectInstructions, ...snapshot } = config
         this.questionBridge = questionBridge
         this.snapshot = {
             ...snapshot,
@@ -84,6 +88,7 @@ export class Agent {
         this.hooks = config.hooks ?? noopHooks
         this.cwd = config.cwd
         this.skills = config.skills ?? []
+        this.projectInstructions = projectInstructions
         if (!config.tools) {
             this.registerDelegationTool()
         }
@@ -149,6 +154,7 @@ export class Agent {
         const toolDefs = this.tools.getToolDefinitions()
         const store = this.store
         const systemParts = [
+            this.projectInstructions,
             await this.buildSubagentReminder(),
             this.buildSkillsPrompt(this.skills),
         ].filter((part): part is string => Boolean(part && part.trim()))

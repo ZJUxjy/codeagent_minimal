@@ -257,6 +257,15 @@ export class Client {
     return this.sendRequest('rename_session', { sessionId, title })
   }
 
+  /** Get currently loaded instruction files */
+  async getInstructions(): Promise<{
+    files: Array<{ path: string; size: number; sizeFormatted: string }>
+    totalSize: number
+    totalSizeFormatted: string
+  }> {
+    return this.sendRequest("get_instructions")
+  }
+
   /** 关闭客户端 */
   close(): void {
     this.server.kill()

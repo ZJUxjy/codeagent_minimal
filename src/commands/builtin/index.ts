@@ -11,6 +11,7 @@ export { deleteCommand } from './deleteCommand.js'
 export { renameCommand } from './renameCommand.js'
 export { skillsCommand, skillCommand } from './skillCommand.js'
 export { approvalModeCommand } from './approvalModeCommand.js'
+export { instructionsCommand } from './instructionsCommand.js'
 
 // 所有内置命令列表
 import { helpCommand } from './helpCommand.js'
@@ -25,6 +26,7 @@ import { deleteCommand } from './deleteCommand.js'
 import { renameCommand } from './renameCommand.js'
 import { skillsCommand, skillCommand } from './skillCommand.js'
 import { approvalModeCommand } from './approvalModeCommand.js'
+import { instructionsCommand } from './instructionsCommand.js'
 import type { SlashCommand } from '../types.js'
 
 export const allBuiltinCommands: SlashCommand[] = [
@@ -41,4 +43,5 @@ export const allBuiltinCommands: SlashCommand[] = [
     skillsCommand,
     skillCommand,
     approvalModeCommand,
+    instructionsCommand,
 ]

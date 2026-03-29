@@ -2,6 +2,8 @@ import { startTUI } from './tui/index.js';
 import { loadConfig } from './config.js';
 import type { ClientOptions, TuiThemeId } from './client/index.js';
 import { createLogger, Logger } from './utils/logger.js'
+import * as fs from "fs"
+import * as path from "path"
 
 const logger = createLogger()
 if (logger instanceof Logger) {
@@ -9,6 +11,32 @@ if (logger instanceof Logger) {
 }
 
 async function main() {
+  // Handle `lop init` subcommand
+  if (process.argv[2] === 'init') {
+    const targetPath = path.resolve(process.cwd(), 'LOP.md')
+    if (fs.existsSync(targetPath)) {
+      console.log('LOP.md already exists. No changes made.')
+      process.exit(0)
+    }
+    const template = `# Project Instructions
+
+<!-- Add project-specific instructions for the AI agent here. -->
+<!-- This file is loaded automatically from any directory in the project tree. -->
+
+## Code Style
+<!-- e.g. "Always use TypeScript strict mode." -->
+
+## Architecture
+<!-- e.g. "This is a Next.js App Router project." -->
+
+## Rules
+<!-- e.g. "Never commit secrets. Always write tests." -->
+`
+    fs.writeFileSync(targetPath, template, 'utf8')
+    console.log(`Created LOP.md at ${targetPath}`)
+    process.exit(0)
+  }
+
   const fileConfig = loadConfig();
 
   // 解析命令行参数

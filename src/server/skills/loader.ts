@@ -6,6 +6,7 @@ import { parse as parseYaml } from "yaml"
 import type { LopConfig } from "../../protocol/types.js"
 import type { Skill, SkillLoadResult, SkillPromptOptions } from "./types.js"
 import { readRegistry } from "./registry.js"
+import { findGitRoot } from "../utils/git.js"
 
 const ROOT_DIR = ".lop"
 const SKILLS_DIR = "skills"
@@ -38,23 +39,6 @@ function parseFrontmatter(markdown: string): ParsedFrontmatter {
         name: typeof raw["name"] === "string" ? raw["name"] : undefined,
         description: typeof raw["description"] === "string" ? raw["description"].trimEnd() : undefined,
         disableModelInvocation: raw["disable-model-invocation"] === true,
-    }
-}
-
-function findGitRoot(startDir: string): string | null {
-    let current = path.resolve(startDir)
-
-    while (true) {
-        const gitPath = path.join(current, ".git")
-        if (existsSync(gitPath)) {
-            return current
-        }
-
-        const parent = path.dirname(current)
-        if (parent === current) {
-            return null
-        }
-        current = parent
     }
 }
 
@@ -96,7 +80,7 @@ function buildDiscoveryPaths(cwd: string, config?: LopConfig): string[] {
     paths.push(path.join(os.homedir(), ROOT_DIR, SKILLS_DIR))
     paths.push(path.join(os.homedir(), ".agents", SKILLS_DIR))
 
-    // 去重，保持顺序
+    // Deduplicate while preserving order
     return Array.from(new Set(paths))
 }
 

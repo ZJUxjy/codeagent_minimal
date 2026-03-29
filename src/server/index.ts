@@ -14,6 +14,7 @@ import { PermissionEngine, type ApprovalMode } from "./security/permissionEngine
 import { createPermissionHook } from "./security/permissionHook.js"
 import { loadSkills } from "./skills/index.js"
 import { SkillWatcher } from "./skills/watcher.js"
+import { loadProjectInstructions, discoverInstructionFiles, formatInstructionPath, formatInstructionSize } from "./instructions/index.js"
 
 let agent: Agent | null = null
 let currentCwd = process.cwd()
@@ -130,7 +131,10 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             debugLog("server", `API Key: ${config.apiKey?.slice(0, 10)}...`)
             debugLog("server", `Base URL: ${config.baseURL}`)
 
-            const skillResult = await loadSkills(currentCwd)
+            const [skillResult, projectInstructions] = await Promise.all([
+                loadSkills(currentCwd),
+                loadProjectInstructions(currentCwd),
+            ])
             for (const diagnostic of skillResult.diagnostics) {
                 debugLog("skills", diagnostic)
             }
@@ -141,6 +145,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             agent = new Agent({
                 ...config,
                 skills: skillResult.skills,
+                projectInstructions,
                 questionBridge,
                 hooks: { beforeToolExecute: permissionHook },
             })
@@ -183,7 +188,10 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             if (cwd && cwd !== currentCwd) {
                 currentCwd = cwd
                 const config = buildServerAgentConfig(currentCwd)
-                const skillResult = await loadSkills(currentCwd)
+                const [skillResult, projectInstructions] = await Promise.all([
+                    loadSkills(currentCwd),
+                    loadProjectInstructions(currentCwd),
+                ])
                 for (const diagnostic of skillResult.diagnostics) {
                     debugLog("skills", diagnostic)
                 }
@@ -192,6 +200,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 agent = new Agent({
                     ...config,
                     skills: skillResult.skills,
+                    projectInstructions,
                     questionBridge: questionBridge!,
                     hooks: { beforeToolExecute: permHook },
                 })
@@ -386,6 +395,21 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             } catch (error: any) {
                 sendError(requestId, -32000, error.message)
             }
+            break
+        }
+
+        case "get_instructions": {
+            const files = await discoverInstructionFiles(currentCwd)
+            const totalSize = files.reduce((sum, f) => sum + f.size, 0)
+            sendResponse(requestId, {
+                files: files.map((f) => ({
+                    path: formatInstructionPath(f.path),
+                    size: f.size,
+                    sizeFormatted: formatInstructionSize(f.size),
+                })),
+                totalSize,
+                totalSizeFormatted: formatInstructionSize(totalSize),
+            })
             break
         }
 
