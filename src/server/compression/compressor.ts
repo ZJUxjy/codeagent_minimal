@@ -25,11 +25,6 @@ export interface CompressionOptions {
     tokenLimit?: number
 }
 
-function charLen(msg: CoreMessage): number {
-    const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content)
-    return content.length
-}
-
 function hasToolCalls(msg: CoreMessage): boolean {
     if (typeof msg.content !== "string") {
         return Array.isArray(msg.content) && msg.content.some((p: any) => p.type === "tool-call")
@@ -50,13 +45,14 @@ export function shouldCompress(messages: CoreMessage[], opts: CompressionOptions
 }
 
 function findSplitPoint(messages: CoreMessage[]): number {
-    const total = messages.reduce((s, m) => s + charLen(m), 0)
-    const target = total * (1 - PRESERVE_TAIL_RATIO)  // 70% of chars
+    // Use token estimates for consistent measurement with shouldCompress()
+    const total = messages.reduce((s, m) => s + estimateTokens(m), 0)
+    const target = total * (1 - PRESERVE_TAIL_RATIO)  // 70% of tokens
     let accumulated = 0
     let splitIdx = 0
 
     for (let i = 0; i < messages.length; i++) {
-        accumulated += charLen(messages[i])
+        accumulated += estimateTokens(messages[i])
         if (messages[i].role === "user" && accumulated >= target) {
             // Don't split if the previous message has unresolved tool calls
             const prev = messages[i - 1]

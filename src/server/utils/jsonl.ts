@@ -1,20 +1,25 @@
-import { appendFileSync, existsSync, readFileSync, mkdirSync } from 'fs';
+import { appendFileSync, readFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 
 export function writeLineSync<T>(filePath: string, record: T): void {
   const dir = dirname(filePath);
-  if (!existsSync(dir)) {
+  try {
     mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
   }
   const line = JSON.stringify(record) + '\n';
   appendFileSync(filePath, line, 'utf-8');
 }
 
 export function readLinesSync<T>(filePath: string): T[] {
-  if (!existsSync(filePath)) {
-    return [];
+  let content: string;
+  try {
+    content = readFileSync(filePath, 'utf-8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
   }
-  const content = readFileSync(filePath, 'utf-8');
   return content
     .split('\n')
     .map((line, index) => ({ line, index }))

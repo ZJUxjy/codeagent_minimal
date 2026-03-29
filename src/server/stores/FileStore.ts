@@ -35,17 +35,19 @@ export class FileStore implements MessageStore {
   private cwd: string;
   private lastUuid: string | null = null;
   private sessionDir: string;
+  private index: SessionIndex;
 
   /**
-   * @param sessionId  会话唯一标识
-   * @param cwd        工作目录（用于生成默认存储路径）
-   * @param sessionDir 可选：自定义会话目录（测试隔离用）
+   * @param sessionId  Session unique identifier
+   * @param cwd        Working directory (used for default storage path)
+   * @param sessionDir Optional: custom session directory (for test isolation)
    */
   constructor(sessionId: string, cwd: string, sessionDir?: string) {
     this.sessionId = sessionId;
     this.cwd = cwd;
     this.sessionDir = sessionDir ?? getSessionDir(cwd);
     this.filePath = join(this.sessionDir, `${sessionId}.jsonl`);
+    this.index = new SessionIndex(this.sessionDir);
     this.loadFromDisk();
   }
 
@@ -71,8 +73,7 @@ export class FileStore implements MessageStore {
     this.lastUuid = uuid;
     writeLineSync(this.filePath, record);
 
-    const index = new SessionIndex(this.sessionDir);
-    const existing = index.getSession(this.sessionId);
+    const existing = this.index.getSession(this.sessionId);
     const messageCount = this.getMessageCount();
     const preview = message.role === 'user'
       ? contentToPreview(message.content).slice(0, MAX_PREVIEW_LENGTH)
@@ -81,9 +82,9 @@ export class FileStore implements MessageStore {
     if (existing) {
       const updates: Partial<SessionMeta> = { messageCount, updatedAt: record.timestamp };
       if (!existing.preview && preview) updates.preview = preview;
-      index.updateSession(this.sessionId, updates);
+      this.index.updateSession(this.sessionId, updates);
     } else {
-      index.addSession({
+      this.index.addSession({
         sessionId: this.sessionId,
         title: null,
         messageCount,
@@ -98,15 +99,14 @@ export class FileStore implements MessageStore {
     return this.records.filter(r => r.type !== 'meta').map(r => r.message!);
   }
 
-  /** 清空内存和磁盘（截断文件）。与 InMemoryStore.clear() 语义一致。 */
+  /** Clear memory and disk (truncate file). Same semantics as InMemoryStore.clear(). */
   clear(): void {
     this.records = [];
     this.lastUuid = null;
     if (existsSync(this.filePath)) {
       writeFileSync(this.filePath, '');
     }
-    const index = new SessionIndex(this.sessionDir);
-    index.updateSession(this.sessionId, { messageCount: 0, updatedAt: new Date().toISOString() });
+    this.index.updateSession(this.sessionId, { messageCount: 0, updatedAt: new Date().toISOString() });
   }
 
   /** Replace all messages in the store (e.g. after context compression). Preserves meta records. */
@@ -138,8 +138,7 @@ export class FileStore implements MessageStore {
       writeLineSync(this.filePath, r);
     }
 
-    const index = new SessionIndex(this.sessionDir);
-    index.updateSession(this.sessionId, { messageCount: messages.length, updatedAt: now });
+    this.index.updateSession(this.sessionId, { messageCount: messages.length, updatedAt: now });
   }
 
   getSessionId(): string {
@@ -179,12 +178,11 @@ export class FileStore implements MessageStore {
       writeLineSync(this.filePath, r);
     }
 
-    const index = new SessionIndex(this.sessionDir);
-    const existing = index.getSession(this.sessionId);
+    const existing = this.index.getSession(this.sessionId);
     if (existing) {
-      index.updateSession(this.sessionId, { model, provider });
+      this.index.updateSession(this.sessionId, { model, provider });
     } else {
-      index.addSession({
+      this.index.addSession({
         sessionId: this.sessionId,
         title: null,
         messageCount: this.getMessageCount(),

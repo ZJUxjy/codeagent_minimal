@@ -1,21 +1,4 @@
-// 内置命令索引
-export { helpCommand } from './helpCommand.js'
-export { clearCommand } from './clearCommand.js'
-export { quitCommand } from './quitCommand.js'
-export { statsCommand } from './statsCommand.js'
-export { themeCommand } from './themeCommand.js'
-export { mcpCommand } from './mcpCommand.js'
-export { sessionsCommand } from './sessionsCommand.js'
-export { loadCommand } from './loadCommand.js'
-export { deleteCommand } from './deleteCommand.js'
-export { renameCommand } from './renameCommand.js'
-export { skillsCommand, skillCommand } from './skillCommand.js'
-export { approvalModeCommand } from './approvalModeCommand.js'
-export { instructionsCommand } from './instructionsCommand.js'
-export { compressCommand } from './compressCommand.js'
-export { btwCommand } from './btwCommand.js'
-
-// 所有内置命令列表
+// Built-in command index
 import { helpCommand } from './helpCommand.js'
 import { clearCommand } from './clearCommand.js'
 import { quitCommand } from './quitCommand.js'
@@ -32,6 +15,25 @@ import { instructionsCommand } from './instructionsCommand.js'
 import { compressCommand } from './compressCommand.js'
 import { btwCommand } from './btwCommand.js'
 import type { SlashCommand } from '../types.js'
+
+export {
+    helpCommand,
+    clearCommand,
+    quitCommand,
+    statsCommand,
+    themeCommand,
+    mcpCommand,
+    sessionsCommand,
+    loadCommand,
+    deleteCommand,
+    renameCommand,
+    skillsCommand,
+    skillCommand,
+    approvalModeCommand,
+    instructionsCommand,
+    compressCommand,
+    btwCommand,
+}
 
 export const allBuiltinCommands: SlashCommand[] = [
     helpCommand,
