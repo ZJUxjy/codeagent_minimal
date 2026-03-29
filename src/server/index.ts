@@ -1,5 +1,6 @@
 // src/server/index.ts
 import * as readline from "readline"
+import type { CoreMessage } from "ai"
 import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
 import type { JsonRpcRequest, JsonRpcNotification, LopConfig } from "../protocol/types.js"
 import { debugLog } from "../config.js"
@@ -15,10 +16,14 @@ import { createPermissionHook } from "./security/permissionHook.js"
 import { loadSkills } from "./skills/index.js"
 import { SkillWatcher } from "./skills/watcher.js"
 import { loadProjectInstructions, discoverInstructionFiles, formatInstructionPath, formatInstructionSize } from "./instructions/index.js"
+import { LLMClient } from "../llm.js"
+import { convertToolMessages, truncateMessages } from "./utils/truncateMessages.js"
 
 let agent: Agent | null = null
 let currentCwd = process.cwd()
 let currentAbortController: AbortController | null = null
+let btwAbortController: AbortController | null = null
+let btwRequestId: number | string | null = null
 let questionBridge: QuestionBridge | null = null
 let permissionEngine: PermissionEngine | null = null
 let skillWatcher: SkillWatcher | undefined
@@ -423,6 +428,87 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 totalSize,
                 totalSizeFormatted: formatInstructionSize(totalSize),
             })
+            break
+        }
+
+        case "btw": {
+            if (!agent) {
+                sendError(requestId, -32002, "Not initialized")
+                return
+            }
+
+            const { message } = params as { message: string }
+            if (!message?.trim()) {
+                sendError(requestId, -32602, "message is required")
+                return
+            }
+
+            // Cancel any in-flight btw and resolve its pending request
+            if (btwAbortController) {
+                btwAbortController.abort()
+                if (btwRequestId !== null) sendResponse(btwRequestId, {})
+            }
+            btwAbortController = new AbortController()
+            btwRequestId = requestId
+            const btwController = btwAbortController
+            const btwSignal = btwController.signal
+
+            // Snapshot conversation history
+            const history = agent.getStoreMessages()
+            const snapshot = agent.getConfigSnapshot()
+            const convertedHistory = convertToolMessages(truncateMessages(history))
+
+            const llm = new LLMClient({
+                provider: snapshot.provider,
+                model: snapshot.model,
+                apiKey: snapshot.apiKey,
+                baseURL: snapshot.baseURL,
+                debug: snapshot.debug,
+            })
+
+            // Frame as side question
+            const framedMessages: CoreMessage[] = [
+                ...convertedHistory,
+                { role: "user", content: `[Side question — answer briefly and concisely. This is a "by the way" question that should not be part of the main conversation.]\n\n${message}` },
+            ]
+
+            // Fire-and-forget streaming
+            ;(async () => {
+                try {
+                    const stream = llm.stream(framedMessages, {}, undefined)
+                    for await (const event of stream) {
+                        if (btwSignal.aborted) return
+                        if (event.type === "content") {
+                            sendNotification("btw_content", { delta: event.delta })
+                        } else if (event.type === "done") {
+                            sendNotification("btw_done", { finishReason: event.finishReason })
+                        }
+                    }
+                } catch (error: any) {
+                    if (!btwSignal.aborted) {
+                        sendNotification("btw_done", { finishReason: `error: ${error.message}` })
+                    }
+                }
+                sendResponse(requestId, {})
+                if (btwAbortController === btwController) {
+                    btwAbortController = null
+                    btwRequestId = null
+                }
+            })()
+            break
+        }
+
+        case "interrupt_btw": {
+            if (btwAbortController) {
+                btwAbortController.abort()
+                btwAbortController = null
+                // Resolve the pending btw request so client doesn't hang
+                if (btwRequestId !== null) {
+                    sendResponse(btwRequestId, {})
+                    btwRequestId = null
+                }
+            }
+            sendResponse(requestId, {})
             break
         }
 
