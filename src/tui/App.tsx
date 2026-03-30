@@ -41,6 +41,8 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
 
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoading, setIsLoading] = useState(false)
+    // Separate from isLoading so slash commands don't affect hasActiveTurn in MessageList
+    const [isCommandRunning, setIsCommandRunning] = useState(false)
 
     // 工具统计
     const [toolStats, setToolStats] = useState<ToolStats>(new Map())
@@ -309,7 +311,13 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
     const handleSubmit = useCallback(async (input: string) => {
         if (!input.trim()) return
 
-        const result = await processInput(input)
+        setIsCommandRunning(true)
+        let result: Awaited<ReturnType<typeof processInput>>
+        try {
+            result = await processInput(input)
+        } finally {
+            setIsCommandRunning(false)
+        }
 
         switch (result.type) {
             case 'handled':
@@ -457,7 +465,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                         onSubmit={handleSubmit}
                         onClear={handleClear}
                         onInterrupt={handleInterrupt}
-                        disabled={isLoading || !isReady || pendingQuestion !== null || pendingPermission !== null}
+                        disabled={isLoading || isCommandRunning || !isReady || pendingQuestion !== null || pendingPermission !== null}
                         commands={registry.getVisibleCommands()}
                     />
                 </Box>

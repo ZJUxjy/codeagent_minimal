@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text, Static } from "ink";
 import { MessageItem } from "./MessageItem.js";
 import { ThinkingMessage } from "./ThinkingMessage.js";
-import type { Message, MessageTurn, StreamingState } from "../types.js";
+import type { Message, StreamingState } from "../types.js";
 import type { SemanticColors } from "../themes/types.js";
 import { useTheme } from "../themes/ThemeContext.js";
 
@@ -10,26 +10,6 @@ interface MessageListProps {
     messages: Message[];
     streaming: StreamingState;
     isLoading: boolean;
-}
-
-/** 按回合分组消息：每个 user 消息到下一个 user 消息之前 */
-function groupIntoTurns(messages: Message[]): MessageTurn[] {
-    const turns: MessageTurn[] = [];
-    let current: Message[] = [];
-
-    for (const msg of messages) {
-        if (msg.role === "user" && current.length > 0) {
-            turns.push({ id: current[0].id, messages: current });
-            current = [];
-        }
-        current.push(msg);
-    }
-
-    if (current.length > 0) {
-        turns.push({ id: current[0].id, messages: current });
-    }
-
-    return turns;
 }
 
 /** 用边框包裹正在进行的对话回合 */
@@ -58,22 +38,22 @@ export const MessageList: React.FC<MessageListProps> = ({
 }) => {
     const { colors } = useTheme();
 
-    const turns = React.useMemo(() => groupIntoTurns(messages), [messages]);
-    const hasActiveTurn = isLoading && turns.length > 0
-        && turns[turns.length - 1].messages.some(m => m.role === 'user')
-    const completedTurns = React.useMemo(
-        () => (hasActiveTurn ? turns.slice(0, -1) : turns),
-        [turns, isLoading],
-    );
-    const activeTurn = hasActiveTurn ? turns[turns.length - 1] : null;
+    // Find the start of the active turn: the last user message while loading.
+    // Everything before it is frozen in Static; from it onwards renders live.
+    const lastUserIdx = React.useMemo(() => {
+        if (!isLoading) return -1
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === 'user') return i
+        }
+        return -1
+    }, [messages, isLoading])
 
-    // Flatten completed turns into individual messages so Static keys by message
-    // id rather than turn id. This prevents the frozen-turn bug where new messages
-    // added to an existing turn are silently dropped by Static's once-only render.
+    const hasActiveTurn = lastUserIdx >= 0
     const completedMessages = React.useMemo(
-        () => completedTurns.flatMap(t => t.messages),
-        [completedTurns],
-    );
+        () => hasActiveTurn ? messages.slice(0, lastUserIdx) : messages,
+        [messages, hasActiveTurn, lastUserIdx],
+    )
+    const activeTurnMessages = hasActiveTurn ? messages.slice(lastUserIdx) : []
 
     return (
         <Box flexDirection="column" marginBottom={0}>
@@ -84,9 +64,9 @@ export const MessageList: React.FC<MessageListProps> = ({
             </Static>
 
             {/* 正在进行的回合不放入 Static（需要实时更新） */}
-            {activeTurn ? (
+            {hasActiveTurn ? (
                 <TurnBox colors={colors}>
-                    {activeTurn.messages.map((msg) => (
+                    {activeTurnMessages.map((msg) => (
                         <MessageItem key={msg.id} message={msg} colors={colors} />
                     ))}
                     {streaming.thinkingContent ? (
