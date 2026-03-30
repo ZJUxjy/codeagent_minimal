@@ -68,6 +68,8 @@ interface SelectionResult {
 
 Parallel to `MessageStore`, stores per-turn summaries. In-memory implementation (`InMemoryTurnSummaryStore`), no persistence for v1.
 
+**Ownership:** `TurnSummaryStore` owns summary content and pending/failed state. `TurnTracker` owns turn boundaries and message IDs. When building `TurnMeta[]` for `ContextSelector`, the code merges `TurnTracker`'s boundary info with `TurnSummaryStore`'s summary/pending/failed state.
+
 ```typescript
 interface TurnSummaryStore {
     add(summary: TurnSummary): void
@@ -81,13 +83,15 @@ interface TurnSummaryStore {
 }
 ```
 
+Note: `TurnMeta.hasSummary`, `TurnMeta.isPending`, `TurnMeta.isFailed` are derived from `TurnSummaryStore` at query time — they are not stored separately in `TurnTracker`.
+
 ### TurnTracker
 
 Lightweight utility that tracks turn boundaries as messages are added to `MessageStore`.
 
 **Note:** This uses a **user-centric** grouping — a turn starts at each `user` message and ends before the next `user` message (inclusive of all `assistant` and `tool` messages in between). This differs from `groupIntoTurns()` in `truncateMessages.ts` which uses an **assistant-centric** grouping. The user-centric definition is more natural for summarization because it captures "what happened in response to a user request."
 
-Each message gets a stable `messageId` assigned by the tracker (monotonically increasing counter).
+Each message gets a stable `messageId` assigned by the tracker (monotonically increasing counter). `TurnTracker` maintains its own `nextId` counter — `MessageStore` is not modified. The mapping from `messageId` to array index is managed internally by `TurnTracker`. When `compressContext` fires and `TurnSummaryStore.clear()` is called, `TurnTracker` also resets its mapping.
 
 ### Summarizer
 
@@ -117,7 +121,7 @@ class Summarizer {
 
 ### ContextSelector
 
-Async component called before each LLM stream. Uses the same dedicated `LLMClient` via `LLMClient.complete()` (non-streaming). Expected latency: 1-3 seconds with a fast model (e.g., glm-4-flash).
+Async component called before each LLM stream. Uses the same dedicated `LLMClient` via `LLMClient.complete()` (non-streaming). The selection prompt is structured as: `systemPrompt` = selection instructions, `messages` = a single user message containing summaries + turn descriptions + the new user question. Expected latency: 1-3 seconds with a fast model (e.g., glm-4-flash).
 
 ```typescript
 class ContextSelector {
@@ -166,7 +170,7 @@ for (const turn of selectedTurns) {
 // 4. Current user question (already in store, included via selected turns for the current turn)
 ```
 
-**Post-assembly processing:** After assembly, `convertToolMessages()` is applied (same as existing path). `truncateMessages()` is also applied as a final safety net — if the assembled context (summaries + selected turns) still exceeds `DEFAULT_MAX_TOKENS`, oldest selected turns are dropped.
+**Post-assembly processing:** After assembly, `convertToolMessages()` is applied (same as existing path — see Agent Loop Integration section below for the actual call site). `truncateMessages()` is also applied as a final safety net — if the assembled context (summaries + selected turns) still exceeds `DEFAULT_MAX_TOKENS`, oldest selected turns are dropped.
 
 ## Configuration
 
