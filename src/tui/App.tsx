@@ -257,6 +257,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 }
                 setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
                 setIsLoading(false)
+
                 break
         }
     }, [])
@@ -326,6 +327,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 } as Message])
                 setIsLoading(true)
 
+
                 try {
                     await client.chat(result.content, config.cwd)
                 } catch (error) {
@@ -336,6 +338,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                         timestamp: Date.now(),
                     } as Message])
                     setIsLoading(false)
+
                 }
                 break
             case 'btw':
@@ -355,6 +358,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
             await client.interrupt()
         }
         setIsLoading(false)
+
         setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
         setPendingQuestions([])
         setPendingPermissions([])
@@ -424,9 +428,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                         isLoading={isLoading}
                     />
                     {isLoading && (
-                        <LoadingIndicator
-                            text={streaming.isThinkingStreaming ? "Thinking..." : undefined}
-                        />
+                        <LoadingIndicator />
                     )}
                     {pendingPermission && (
                         <PermissionPrompt

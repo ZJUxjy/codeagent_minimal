@@ -148,7 +148,8 @@ export class LLMClient {
                 ...(options?.system ? { system: options.system } : {}),
                 messages,
                 tools: toolDefs,
-                maxSteps: 10,
+                maxSteps: 20,
+                maxTokens: 16384,
                 ...(this.config.provider === "anthropic" && {
                     providerOptions: {
                         anthropic: {

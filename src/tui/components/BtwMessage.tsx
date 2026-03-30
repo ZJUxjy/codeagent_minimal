@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { useTheme } from '../themes/ThemeContext.js'
+import Spinner from 'ink-spinner'
 
 interface BtwMessageProps {
     question: string
@@ -28,7 +29,6 @@ export const BtwMessage: React.FC<BtwMessageProps> = ({ question, answer, isStre
     })
 
     const displayAnswer = answer || (isStreaming ? 'Answering...' : '')
-
     return (
         <Box
             flexDirection="column"
@@ -42,8 +42,7 @@ export const BtwMessage: React.FC<BtwMessageProps> = ({ question, answer, isStre
                 <Text dimColor>{question}</Text>
             </Box>
             <Box marginTop={0}>
-                <Text>{displayAnswer}</Text>
-                {isStreaming && <Text color={colors.status.success}>...</Text>}
+                {isStreaming && <><Spinner type="dots" /><Text> </Text></>}<Text color={colors.status.success}>{displayAnswer}</Text>
             </Box>
             <Box>
                 <Text dimColor>

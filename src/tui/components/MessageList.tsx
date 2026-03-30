@@ -71,7 +71,8 @@ export const MessageList: React.FC<MessageListProps> = ({
     const { colors } = useTheme();
 
     const turns = React.useMemo(() => groupIntoTurns(messages), [messages]);
-    const hasActiveTurn = isLoading && turns.length > 0;
+    const lastTurn = turns[turns.length - 1]
+    const hasActiveTurn = isLoading && turns.length > 0 && lastTurn.messages.some(m => m.role === 'user')
     const completedTurns = React.useMemo(
         () => (hasActiveTurn ? turns.slice(0, -1) : turns),
         [turns, hasActiveTurn],
