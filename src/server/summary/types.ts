@@ -21,7 +21,14 @@ export interface TurnMeta {
 /** Result of context selection */
 export interface SelectionResult {
     fullTurns: string[]
-    allSummaries: string
+    allSummaries: TurnSummary[]
+}
+
+/** A turn chunk used during context assembly in buildInitialWorkingContext */
+export interface TurnChunk {
+    turnId: string
+    messages: import("ai").CoreMessage[]
+    droppable: boolean
 }
 
 /** Internal turn boundary tracked by TurnTracker */

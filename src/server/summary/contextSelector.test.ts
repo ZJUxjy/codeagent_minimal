@@ -26,7 +26,7 @@ describe("ContextSelector", () => {
 
         expect(mockComplete).not.toHaveBeenCalled()
         expect(result.fullTurns).toEqual([])
-        expect(result.allSummaries).toContain("s1")
+        expect(result.allSummaries.some(s => s.summary === "s1")).toBe(true)
     })
 
     it("LLM returns valid JSON with known turnIds", async () => {
@@ -45,8 +45,8 @@ describe("ContextSelector", () => {
         const result = await selector.select("question about turn 1", summaries, turns)
 
         expect(result.fullTurns).toEqual(["turn-1"])
-        expect(result.allSummaries).toContain("s1")
-        expect(result.allSummaries).toContain("s2")
+        expect(result.allSummaries.some(s => s.summary === "s1")).toBe(true)
+        expect(result.allSummaries.some(s => s.summary === "s2")).toBe(true)
     })
 
     it("filters unknown turnIds from LLM response", async () => {
