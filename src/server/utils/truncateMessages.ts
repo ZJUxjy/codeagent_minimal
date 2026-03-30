@@ -1,52 +1,35 @@
 import type { CoreMessage } from "ai"
 
 /**
- * Strip structured tool-call / tool-result blocks from the message history
- * and replace them with human-readable plain text.
+ * Convert role:"tool" messages to role:"user" with plain-text content.
+ * Some Anthropic-compatible endpoints (e.g. glm) don't fully support the
+ * `tool_result` content-block format and reject messages that reference tools.
+ * By converting to plain user text, the tool results still reach the model
+ * as context without requiring provider-side tool-result support.
  *
- * Some providers (e.g. GLM, Kimi) don't fully support the `tool_result`
- * content-block format and reject messages where an assistant message with
- * `tool_calls` is not immediately followed by proper `role: "tool"` messages.
- * By converting both sides to plain text the conversation remains valid for
- * every provider while the LLM still receives full tool context.
+ * NOTE: assistant messages with tool-call parts are intentionally left as-is.
+ * Converting them to plain text causes the LLM to mimic the format in subsequent
+ * turns instead of issuing real tool calls.
  */
 export function convertToolMessages(messages: CoreMessage[]): CoreMessage[] {
     const result: CoreMessage[] = []
     for (const msg of messages) {
-        if (msg.role === "tool") {
-            // Flatten tool-result parts into readable text
-            const parts = Array.isArray(msg.content) ? msg.content : []
-            const text = parts
-                .map((p: any) => {
-                    if (p.type === "tool-result") {
-                        const body = typeof p.result === "string" ? p.result : JSON.stringify(p.result)
-                        return `[Tool Result: ${p.toolName}]\n${body}`
-                    }
-                    return JSON.stringify(p)
-                })
-                .join("\n\n")
-            result.push({ role: "user", content: text })
-        } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
-            // If the assistant message contains tool-call parts, convert them
-            // to plain text so the SDK doesn't expect matching tool messages.
-            const hasToolCalls = (msg.content as any[]).some((p: any) => p.type === "tool-call")
-            if (hasToolCalls) {
-                const text = (msg.content as any[])
-                    .map((p: any) => {
-                        if (p.type === "tool-call") {
-                            return `[Called ${p.toolName}(${JSON.stringify(p.args)})]`
-                        }
-                        return p.text ?? ""
-                    })
-                    .filter(Boolean)
-                    .join("\n")
-                result.push({ role: "assistant", content: text })
-            } else {
-                result.push(msg)
-            }
-        } else {
+        if (msg.role !== "tool") {
             result.push(msg)
+            continue
         }
+        // Flatten tool-result parts into readable text
+        const parts = Array.isArray(msg.content) ? msg.content : []
+        const text = parts
+            .map((p: any) => {
+                if (p.type === "tool-result") {
+                    const body = typeof p.result === "string" ? p.result : JSON.stringify(p.result)
+                    return `[Tool Result: ${p.toolName}]\n${body}`
+                }
+                return JSON.stringify(p)
+            })
+            .join("\n\n")
+        result.push({ role: "user", content: text })
     }
     return result
 }
