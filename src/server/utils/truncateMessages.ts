@@ -1,35 +1,53 @@
 import type { CoreMessage } from "ai"
 
 /**
- * Convert role:"tool" messages to role:"user" with plain-text content.
- * Some Anthropic-compatible endpoints (e.g. glm) don't fully support the
- * `tool_result` content-block format and reject messages that reference tools.
- * By converting to plain user text, the tool results still reach the model
- * as context without requiring provider-side tool-result support.
+ * Normalise the message history for providers that don't support the
+ * structured tool-call / tool-result content-block format (e.g. GLM, Kimi).
  *
- * NOTE: assistant messages with tool-call parts are intentionally left as-is.
- * Converting them to plain text causes the LLM to mimic the format in subsequent
- * turns instead of issuing real tool calls.
+ * Two transformations are applied:
+ *
+ * 1. role:"tool" → role:"user" with plain-text content.
+ *    Tool results become readable user messages so every provider can process
+ *    them without needing native tool-result support.
+ *
+ * 2. role:"assistant" with tool-call parts → strip tool-call parts, keep text.
+ *    When a model emits text AND tool calls in the same turn, the assistant
+ *    message has mixed content [text_part, tool_call_part]. After rule (1)
+ *    converts the following tool message to role:"user", the API sees an
+ *    assistant message that still contains tool-call parts but is not followed
+ *    by role:"tool" — which triggers error 2013 ("tool call result does not
+ *    follow tool call"). Stripping the tool-call parts (while keeping text)
+ *    produces a clean assistant(text) → user(result) sequence that every
+ *    provider accepts.
+ *
+ *    NOTE: we strip — not replace with [Called ...] text — to avoid the model
+ *    mimicking that format in subsequent turns.
  */
 export function convertToolMessages(messages: CoreMessage[]): CoreMessage[] {
     const result: CoreMessage[] = []
     for (const msg of messages) {
-        if (msg.role !== "tool") {
+        if (msg.role === "tool") {
+            // Rule 1: flatten tool-result parts into a readable user message
+            const parts = Array.isArray(msg.content) ? msg.content : []
+            const text = parts
+                .map((p: any) => {
+                    if (p.type === "tool-result") {
+                        const body = typeof p.result === "string" ? p.result : JSON.stringify(p.result)
+                        return `[Tool Result: ${p.toolName}]\n${body}`
+                    }
+                    return JSON.stringify(p)
+                })
+                .join("\n\n")
+            result.push({ role: "user", content: text })
+        } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
+            // Rule 2: strip tool-call parts, keep text parts only
+            const textParts = (msg.content as any[]).filter((p: any) => p.type !== "tool-call")
+            const text = textParts.map((p: any) => p.text ?? "").join("")
+            // Always emit the assistant turn (even empty) to avoid user→user adjacency
+            result.push({ role: "assistant", content: text })
+        } else {
             result.push(msg)
-            continue
         }
-        // Flatten tool-result parts into readable text
-        const parts = Array.isArray(msg.content) ? msg.content : []
-        const text = parts
-            .map((p: any) => {
-                if (p.type === "tool-result") {
-                    const body = typeof p.result === "string" ? p.result : JSON.stringify(p.result)
-                    return `[Tool Result: ${p.toolName}]\n${body}`
-                }
-                return JSON.stringify(p)
-            })
-            .join("\n\n")
-        result.push({ role: "user", content: text })
     }
     return result
 }
