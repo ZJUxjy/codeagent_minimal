@@ -29,13 +29,13 @@ That's it — 3 files, all prompt-level changes, no runtime logic changes.
 **Files:**
 - Create: `src/server/prompts/baseSystemPrompt.ts`
 
-- [ ] **Step 1: Create the prompts directory**
+- [x] **Step 1: Create the prompts directory**
 
 ```bash
 mkdir -p src/server/prompts
 ```
 
-- [ ] **Step 2: Write the base system prompt**
+- [x] **Step 2: Write the base system prompt**
 
 Create `src/server/prompts/baseSystemPrompt.ts` with the following content. This adapts the first-tier prompts from `docs/system-prompts/` into a single, cohesive base prompt. Remove all `${...}` template variables and hardcode lop_minimal's actual tool names. Keep it concise — every token counts.
 
@@ -71,7 +71,7 @@ Key design decisions:
 - **Tool names hardcoded** — no template variables, since lop_minimal's tool names are stable.
 - **Section headers** use `#` for clear separation when concatenated with project instructions.
 
-- [ ] **Step 3: Verify the file compiles**
+- [x] **Step 3: Verify the file compiles**
 
 ```bash
 npx tsc --noEmit src/server/prompts/baseSystemPrompt.ts
@@ -79,7 +79,7 @@ npx tsc --noEmit src/server/prompts/baseSystemPrompt.ts
 
 Expected: No errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/server/prompts/baseSystemPrompt.ts
@@ -93,7 +93,7 @@ git commit -m "feat: add base system prompt with tool usage guidelines and task 
 **Files:**
 - Modify: `src/server/agent.ts:1` (import) and `src/server/agent.ts:362-366` (systemParts assembly)
 
-- [ ] **Step 1: Add import**
+- [x] **Step 1: Add import**
 
 At the top of `src/server/agent.ts`, add the import alongside other imports:
 
@@ -101,7 +101,7 @@ At the top of `src/server/agent.ts`, add the import alongside other imports:
 import { BASE_SYSTEM_PROMPT } from "./prompts/baseSystemPrompt.js"
 ```
 
-- [ ] **Step 2: Prepend to systemParts**
+- [x] **Step 2: Prepend to systemParts**
 
 In `runLoop()`, find the `systemParts` assembly (around line 362):
 
@@ -126,7 +126,7 @@ const systemParts = [
 
 The base prompt goes first so project instructions (LOP.md/CLAUDE.md) can override it if needed.
 
-- [ ] **Step 3: Build and verify**
+- [x] **Step 3: Build and verify**
 
 ```bash
 npm run build
@@ -134,7 +134,7 @@ npm run build
 
 Expected: No errors.
 
-- [ ] **Step 4: Run existing tests to check no regressions**
+- [x] **Step 4: Run existing tests to check no regressions**
 
 ```bash
 npx vitest run src/server/__tests__/agent.summary-context.test.ts
@@ -142,7 +142,7 @@ npx vitest run src/server/__tests__/agent.summary-context.test.ts
 
 Expected: All 8+ tests pass. The base prompt is just a string prepend — no behavioral changes to test infrastructure.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/server/agent.ts
@@ -156,7 +156,7 @@ git commit -m "feat: inject base system prompt before project instructions in ag
 **Files:**
 - Modify: `src/server/subagents/builtin.ts:3-16`
 
-- [ ] **Step 1: Replace the EXPLORE config**
+- [x] **Step 1: Replace the EXPLORE config**
 
 Replace the `EXPLORE` constant with a richer version adapted from `docs/system-prompts/agent-prompt-explore.md`. Remove Claude Code-specific references, adapt tool names, and keep it focused on what lop_minimal's explore agent actually supports.
 
@@ -202,7 +202,7 @@ Key adaptations from the Claude Code version:
 - Kept the "be fast, use parallel calls" guidance
 - Added `listDirectory` to the tools list (lop_minimal has this tool, Claude Code doesn't have an equivalent)
 
-- [ ] **Step 2: Build and verify**
+- [x] **Step 2: Build and verify**
 
 ```bash
 npm run build
@@ -210,7 +210,7 @@ npm run build
 
 Expected: No errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/server/subagents/builtin.ts
@@ -224,7 +224,7 @@ git commit -m "feat: enhance explore subagent with detailed read-only behavioral
 **Files:**
 - Modify: `src/server/subagents/builtin.ts:18-26`
 
-- [ ] **Step 1: Replace the GENERAL config**
+- [x] **Step 1: Replace the GENERAL config**
 
 Replace the `GENERAL` constant with a richer version adapted from `docs/system-prompts/agent-prompt-general-purpose.md`:
 
@@ -259,7 +259,7 @@ Key adaptations:
 - Kept the "concise report" instruction (critical for subagent delegation — the parent relays this to the user)
 - Added lop_minimal-specific tool names in the guidelines
 
-- [ ] **Step 2: Build and verify**
+- [x] **Step 2: Build and verify**
 
 ```bash
 npm run build
@@ -267,7 +267,7 @@ npm run build
 
 Expected: No errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/server/subagents/builtin.ts
@@ -278,7 +278,7 @@ git commit -m "feat: enhance general-purpose subagent with detailed behavioral p
 
 ### Task 5: Final verification and manual smoke test
 
-- [ ] **Step 1: Run full build**
+- [x] **Step 1: Run full build**
 
 ```bash
 npm run build
@@ -286,7 +286,7 @@ npm run build
 
 Expected: Clean build, no errors.
 
-- [ ] **Step 2: Run all existing tests**
+- [x] **Step 2: Run all existing tests**
 
 ```bash
 npx vitest run
@@ -294,14 +294,14 @@ npx vitest run
 
 Expected: All tests pass (excluding pre-existing policy.test.ts failures).
 
-- [ ] **Step 3: Manual smoke test — verify base prompt is injected**
+- [x] **Step 3: Manual smoke test — verify base prompt is injected**
 
 Start the agent with `LOP_DEBUG=1 npm run dev` and send a simple message. Check `~/.lop/debug/latest.log` for the system prompt content — it should contain the `# Tool Usage` and `# Task Execution` sections.
 
-- [ ] **Step 4: Manual smoke test — verify explore subagent**
+- [x] **Step 4: Manual smoke test — verify explore subagent**
 
 Ask the agent to explore the codebase: "Use the explore agent to find all files in src/server/tools/". Verify the explore agent behaves correctly (no file mutations, uses glob/grep/read).
 
-- [ ] **Step 5: Manual smoke test — verify general-purpose subagent**
+- [x] **Step 5: Manual smoke test — verify general-purpose subagent**
 
 Ask the agent to delegate a task: "Use the general-purpose agent to check if there are any TODO comments in the codebase". Verify the agent returns a concise report.
