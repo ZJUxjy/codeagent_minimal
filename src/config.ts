@@ -37,6 +37,8 @@ function normalizeConfig(config: any): LopConfig {
         skills: config.skills,
         // 权限审批模式
         approvalMode: config.approvalMode,
+        // 上下文摘要配置（实验功能）
+        summary: config.summary,
     }
 }
 
@@ -104,6 +106,8 @@ export function mergeConfig(options: {
         mcp: options.file?.mcp,
         persistence: options.file?.persistence,
         skills: mergedSkillsPaths ? { paths: mergedSkillsPaths } : undefined,
+        // summary 只从 file config 读取，不合并 CLI / env
+        summary: options.file?.summary,
     }
 }
 

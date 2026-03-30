@@ -3,7 +3,7 @@ import * as readline from "readline"
 import type { CoreMessage } from "ai"
 import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
 import type { JsonRpcRequest, JsonRpcNotification, LopConfig } from "../protocol/types.js"
-import { debugLog } from "../config.js"
+import { debugLog, loadConfig } from "../config.js"
 import { FileStore } from "./stores/FileStore.js"
 import { cleanupOldSessions } from "./stores/sessionCleanup.js"
 import { SessionIndex } from "./stores/SessionIndex.js"
@@ -84,16 +84,18 @@ function getMcpConfigFromEnv(): AgentConfig["mcpConfig"] {
 
 
 
-function buildServerAgentConfig(cwd: string, store?: MessageStore): AgentConfig {
+function buildServerAgentConfig(cwd: string, store?: MessageStore, fileConfig?: LopConfig): AgentConfig {
     return {
-        provider: (process.env.LOP_PROVIDER as AgentConfig["provider"]) ?? "openai",
-        model: process.env.LOP_MODEL ?? "gpt-4o",
-        apiKey: process.env.LOP_API_KEY,
-        baseURL: process.env.LOP_BASE_URL,
+        provider: (process.env.LOP_PROVIDER as AgentConfig["provider"]) ?? fileConfig?.provider ?? "openai",
+        model: process.env.LOP_MODEL ?? fileConfig?.model ?? "gpt-4o",
+        apiKey: process.env.LOP_API_KEY ?? fileConfig?.apiKey,
+        baseURL: process.env.LOP_BASE_URL ?? fileConfig?.baseURL,
         cwd,
         debug: process.env.LOP_DEBUG === "true",
         mcpConfig: getMcpConfigFromEnv(),
         ...(store ? { store } : {}),
+        // summary 只从 file config 读取
+        summary: fileConfig?.summary,
     }
 }
 
@@ -120,7 +122,8 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 store = FileStore.createSession(currentCwd)
                 debugLog("server", `Persistence enabled, session: ${(store as FileStore).getSessionId()}`)
             }
-            const config = buildServerAgentConfig(currentCwd, store)
+            const fileConfig = loadConfig(currentCwd)
+            const config = buildServerAgentConfig(currentCwd, store, fileConfig)
             if (store) {
                 (store as FileStore).setMeta(config.provider, config.model)
                 // Fire-and-forget cleanup of old sessions
@@ -192,7 +195,8 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
             // 如果 cwd 变化，重新创建 Agent
             if (cwd && cwd !== currentCwd) {
                 currentCwd = cwd
-                const config = buildServerAgentConfig(currentCwd)
+                const fileConfig = loadConfig(currentCwd)
+                const config = buildServerAgentConfig(currentCwd, undefined, fileConfig)
                 const [skillResult, projectInstructions] = await Promise.all([
                     loadSkills(currentCwd),
                     loadProjectInstructions(currentCwd),

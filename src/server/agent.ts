@@ -5,7 +5,7 @@ import { ToolRegistry, type ToolRegistryOptions } from "./tools/index.js"
 import { InMemoryStore, type MessageStore } from "./store.js"
 import { noopHooks, type AgentHooks, type ToolCall } from "./hooks/types.js"
 import type { ToolContext } from "./tools/types.js"
-import type { LopConfig, Provider, Question } from "../protocol/types.js"
+import type { LopConfig, Provider, Question, SummaryConfig } from "../protocol/types.js"
 import type { QuestionBridge } from "./questionBridge.js"
 import { createDelegationTool } from "./tools/delegateTool.js"
 import { listSubagents } from "./subagents/manager.js"
@@ -36,6 +36,8 @@ export interface AgentConfig {
     skills?: Skill[]
     /** Pre-loaded project instruction content. */
     projectInstructions?: string
+    /** Summary config (experimental). Only from file config. */
+    summary?: SummaryConfig
 }
 
 export type AgentEvent =

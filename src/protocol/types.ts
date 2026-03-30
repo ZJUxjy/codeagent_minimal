@@ -200,6 +200,17 @@ export interface LopConfig {
     }
     // 权限审批模式
     approvalMode?: "default" | "cautious" | "yolo"
+    // 上下文摘要配置（实验功能）
+    summary?: SummaryConfig
+}
+
+// Summary 配置（实验功能，仅从配置文件读取）
+export interface SummaryConfig {
+    enabled?: boolean
+    provider?: Provider
+    model?: string
+    apiKey?: string
+    baseURL?: string
 }
 
 // MCP Server 配置
