@@ -57,7 +57,6 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         summary: string
     }>>([])
 
-
     const [streaming, setStreaming] = useState<StreamingState>({
         content: '',
         thinkingContent: '',
@@ -233,11 +232,8 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 break
             case 'done':
                 if (event.usage) {
-                    setTokenUsage(prev => ({
-                        promptTokens: prev.promptTokens + (event.usage?.promptTokens ?? 0),
-                        completionTokens: prev.completionTokens + (event.usage?.completionTokens ?? 0),
-                        totalTokens: prev.totalTokens + (event.usage?.totalTokens ?? 0),
-                    }))
+                    // Agent sends cumulative session totals — replace, not add
+                    setTokenUsage(event.usage)
                 }
                 getGlobalLogger().info('done',`${streamingRef.current.slice(0,20)}`)
                 if (streamingRef.current) {

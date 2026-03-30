@@ -3,6 +3,7 @@ import * as os from "os"
 import * as path from "path"
 import { findGitRoot } from "../utils/git.js"
 import { truncate } from "../../utils/truncate.js"
+import { debugLog } from "../../config.js"
 
 const INSTRUCTION_FILENAMES = ["LOP.md", "CLAUDE.md", "AGENTS.md"]
 const MAX_FILE_SIZE = 50 * 1024 // 50 KB
@@ -32,7 +33,7 @@ async function tryReadFile(filePath: string): Promise<{ content: string; size: n
     } catch (error: unknown) {
         const err = error as NodeJS.ErrnoException
         if (err.code === "ENOENT") return null
-        // Log non-ENOENT errors at debug level — silently skip
+        debugLog("instructions", `Failed to read ${filePath}: ${err.message}`)
         return null
     }
 }

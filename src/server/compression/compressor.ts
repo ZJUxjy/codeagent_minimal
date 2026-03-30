@@ -1,7 +1,7 @@
 import type { CoreMessage } from "ai"
 import type { MessageStore } from "../store.js"
 import type { LLMClient } from "../../llm.js"
-import { estimateTokens, DEFAULT_MAX_TOKENS } from "../utils/truncateMessages.js"
+import { estimateTokens, estimateTotalTokens, DEFAULT_MAX_TOKENS } from "../utils/truncateMessages.js"
 import { COMPRESSION_SYSTEM_PROMPT } from "./prompt.js"
 
 const COMPRESSION_THRESHOLD = 0.75  // compress when estimated tokens > 75% of limit
@@ -32,14 +32,10 @@ function hasToolCalls(msg: CoreMessage): boolean {
     return false
 }
 
-function estimateTokensBulk(messages: CoreMessage[]): number {
-    return messages.reduce((s, m) => s + estimateTokens(m), 0)
-}
-
 export function shouldCompress(messages: CoreMessage[], opts: CompressionOptions): boolean {
     if (opts.disabled) return false
     if (opts.failedLastAttempt) return false
-    const estimated = estimateTokensBulk(messages)
+    const estimated = estimateTotalTokens(messages)
     const limit = opts.tokenLimit ?? DEFAULT_MAX_TOKENS
     return estimated / limit >= COMPRESSION_THRESHOLD
 }
@@ -85,8 +81,8 @@ export async function compressContext(
         ...tail,
     ]
 
-    const before = estimateTokensBulk(messages)
-    const after  = estimateTokensBulk(compressed)
+    const before = estimateTotalTokens(messages)
+    const after  = estimateTotalTokens(compressed)
 
     if (after >= before) return { status: "failed_inflated" }
 

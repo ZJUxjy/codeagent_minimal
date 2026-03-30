@@ -43,6 +43,11 @@ export function estimateTokens(msg: CoreMessage): number {
     return Math.ceil(text.length / CHARS_PER_TOKEN)
 }
 
+/** Estimate total tokens for a batch of messages. */
+export function estimateTotalTokens(messages: CoreMessage[]): number {
+    return messages.reduce((s, m) => s + estimateTokens(m), 0)
+}
+
 /**
  * Groups messages into atomic "turns" that must not be split.
  * Each turn starts with an assistant message, followed by any tool result
@@ -78,7 +83,7 @@ export function truncateMessages(
 ): CoreMessage[] {
     if (messages.length === 0) return messages
 
-    const total = messages.reduce((sum, m) => sum + estimateTokens(m), 0)
+    const total = estimateTotalTokens(messages)
     if (total <= maxTokens) return messages
 
     // The first message (initial user prompt) is always preserved
@@ -88,7 +93,7 @@ export function truncateMessages(
     // Drop oldest turns until the history fits
     while (turns.length > 1) {
         const current = [first, ...turns.flat()]
-        if (current.reduce((sum, m) => sum + estimateTokens(m), 0) <= maxTokens) break
+        if (estimateTotalTokens(current) <= maxTokens) break
         turns.shift()
     }
 

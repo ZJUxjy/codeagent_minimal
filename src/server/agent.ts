@@ -144,10 +144,6 @@ export class Agent {
         return `You have an \`agent\` tool to delegate sub-tasks. Available subagent profiles:\n${lines.join("\n")}`
     }
 
-    private static escapeXml(str: string): string {
-        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    }
-
     private buildSkillsPrompt(skills: Skill[]): string | undefined {
         return buildSkillsPromptSection(skills)
     }

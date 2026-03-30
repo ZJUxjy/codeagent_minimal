@@ -202,6 +202,20 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 }
                 permissionEngine = new PermissionEngine(getApprovalMode(), currentCwd)
                 const permHook = createPermissionHook(permissionEngine, questionBridge!)
+
+                // Restart skill watcher for new cwd
+                skillWatcher?.stop().catch(() => {})
+                skillWatcher = new SkillWatcher(currentCwd)
+                skillWatcher.start({
+                    onReload: async (result) => {
+                        for (const d of result.diagnostics) debugLog("skills", d)
+                        if (agent) {
+                            agent.updateSkills(result.skills)
+                        }
+                    },
+                    onError: (err) => debugLog("skills", "Watcher error:", err.message),
+                })
+
                 agent = new Agent({
                     ...config,
                     skills: skillResult.skills,
