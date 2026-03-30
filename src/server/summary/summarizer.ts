@@ -2,7 +2,6 @@ import type { CoreMessage } from "ai"
 import type { LLMClient } from "../../llm.js"
 import type { TurnSummaryStore } from "./turnSummaryStore.js"
 import { SUMMARY_SYSTEM_PROMPT } from "./prompts.js"
-import { estimateTokens } from "../utils/truncateMessages.js"
 
 interface QueueItem {
     turnId: string
@@ -34,7 +33,12 @@ export class Summarizer {
     abort(): void {
         this.activeAbortController?.abort()
         this.activeAbortController = null
+        // Mark queued items as failed so orphan pending state is cleared
+        for (const item of this.queue) {
+            this.store.setFailed(item.turnId, "aborted")
+        }
         this.queue = []
+        this.pendingOrSummarized.clear()
         this.processing = false
     }
 
@@ -72,7 +76,7 @@ export class Summarizer {
                 endMsgId: 0,
                 summary: summary.trim(),
                 createdAt: Date.now(),
-                tokenCount: estimateTokens({ role: "assistant", content: summary } as any),
+                tokenCount: Math.ceil(summary.length / 3.5),
             }
 
             this.store.add(turnSummary)

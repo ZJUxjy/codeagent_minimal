@@ -1,5 +1,5 @@
 // src/server/agent.ts
-import type { CoreMessage, ToolContent, TextPart, ToolCallPart } from "ai"
+import type { CoreMessage, TextPart, ToolCallPart } from "ai"
 import { LLMClient, type TokenUsage } from "../llm.js"
 import { ToolRegistry, type ToolRegistryOptions } from "./tools/index.js"
 import { InMemoryStore, type MessageStore } from "./store.js"
@@ -15,6 +15,12 @@ import { FileIndexManager } from "./indexing/fileIndexManager.js"
 import type { Skill } from "./skills/types.js"
 import { buildSkillsPromptSection } from "./skills/loader.js"
 import { createSkillTool } from "./tools/skill.js"
+import { TurnTracker } from "./summary/turnTracker.js"
+import { InMemoryTurnSummaryStore } from "./summary/turnSummaryStore.js"
+import { ContextSelector } from "./summary/contextSelector.js"
+import { Summarizer } from "./summary/summarizer.js"
+import type { TurnMeta } from "./summary/types.js"
+import { estimateTotalTokens } from "./utils/truncateMessages.js"
 
 export interface AgentConfig {
     provider: Provider
@@ -79,6 +85,13 @@ export class Agent {
 
     private projectInstructions?: string
 
+    // Summary runtime (experimental)
+    private summaryEnabled: boolean = false
+    private turnTracker?: TurnTracker
+    private summaryStore?: InMemoryTurnSummaryStore
+    private contextSelector?: ContextSelector
+    private summarizer?: Summarizer
+
     /** Accumulated token usage across all turns in this session. */
     private totalUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
@@ -114,6 +127,26 @@ export class Agent {
         this.fileIndex = new FileIndexManager(config.cwd)
         this.fileIndex.build().catch((err) => {
             console.warn(`File index build failed, grep will use full scan: ${err.message}`)
+        })
+
+        // Initialize summary runtime if enabled
+        this.summaryEnabled = config.summary?.enabled === true
+        if (this.summaryEnabled) {
+            this.turnTracker = new TurnTracker()
+            this.summaryStore = new InMemoryTurnSummaryStore()
+            const summaryClient = this.createSummaryClient(config)
+            this.contextSelector = new ContextSelector(summaryClient)
+            this.summarizer = new Summarizer(summaryClient, this.summaryStore)
+        }
+    }
+
+    private createSummaryClient(config: AgentConfig): LLMClient {
+        return new LLMClient({
+            provider: config.summary?.provider ?? config.provider,
+            model: config.summary?.model ?? config.model,
+            apiKey: config.summary?.apiKey ?? config.apiKey,
+            baseURL: config.summary?.baseURL ?? config.baseURL,
+            debug: config.debug,
         })
     }
 
@@ -191,15 +224,146 @@ export class Agent {
 
     async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
         this.store.add({ role: "user", content: userMessage })
-        yield* this.runLoop(signal)
+        this.turnTracker?.observe(this.store.getAll())
+
+        const workingContext = this.summaryEnabled
+            ? await this.buildInitialWorkingContext(userMessage, signal)
+            : this.store.getAll()
+
+        yield* this.runLoop(signal, workingContext, true)
     }
 
     /** Run with whatever is already in {@link store} (e.g. system + user seeded for subagents). */
     async *runSeeded(signal?: AbortSignal): AsyncGenerator<AgentEvent> {
-        yield* this.runLoop(signal)
+        // runSeeded has no new user message — v1 always uses canonical history
+        // and does not trigger summary enqueue (no new user turn semantics)
+        yield* this.runLoop(signal, this.store.getAll(), false)
     }
 
-    private async *runLoop(signal?: AbortSignal): AsyncGenerator<AgentEvent> {
+    private async buildInitialWorkingContext(userMessage: string, signal?: AbortSignal): Promise<CoreMessage[]> {
+        const allMessages = this.store.getAll()
+        const turns = this.turnTracker!.getTurns()
+        const summaries = this.summaryStore!.getAll()
+
+        // Skip condition: small context, few turns
+        const totalTokens = estimateTotalTokens(allMessages)
+        if (totalTokens < DEFAULT_MAX_TOKENS * 0.3 && turns.length <= 3) {
+            return allMessages
+        }
+
+        // Build TurnMeta[] by merging turn boundaries with summary state
+        const turnMetaList: TurnMeta[] = turns.map(t => ({
+            turnId: t.turnId,
+            startMsgId: t.startMsgId,
+            endMsgId: t.endMsgId,
+            hasSummary: this.summaryStore!.get(t.turnId) !== undefined,
+            isPending: this.summaryStore!.isPending(t.turnId),
+            isFailed: this.summaryStore!.isFailed(t.turnId),
+        }))
+
+        // The latest turn (current user message) is always included full
+        const latestTurnId = turns.length > 0 ? turns[turns.length - 1].turnId : undefined
+        const skipSelection = summaries.length === 0 // no summaries yet, nothing to select from
+
+        try {
+            const result = await this.contextSelector!.select(
+                userMessage,
+                summaries,
+                turnMetaList,
+                { skipSelection, signal },
+            )
+
+            // Build assembled context
+            const assembled: CoreMessage[] = []
+
+            // 1. Summary prefix
+            if (result.allSummaries) {
+                assembled.push({
+                    role: "user",
+                    content: `[Context Summaries — per-turn summaries from earlier in the session]\n\n${result.allSummaries}`,
+                })
+                assembled.push({
+                    role: "assistant",
+                    content: "Understood. I have the context summaries and will continue from there.",
+                })
+            }
+
+            // 2. Full original messages for selected turns (as turn chunks for pruning)
+            const selectedTurnIds = new Set(result.fullTurns)
+            interface TurnChunk { turnId: string; messages: CoreMessage[]; droppable: boolean }
+            const turnChunks: TurnChunk[] = []
+
+            for (const turn of turns) {
+                const isLatest = turn.turnId === latestTurnId
+                const isSelected = selectedTurnIds.has(turn.turnId)
+                const hasSummary = this.summaryStore!.get(turn.turnId) !== undefined
+                const isPending = this.summaryStore!.isPending(turn.turnId)
+                const isFailed = this.summaryStore!.isFailed(turn.turnId)
+
+                // Force-keep turns that need fallback: pending, failed, or no summary yet
+                const needsFallback = !hasSummary || isPending || isFailed
+                if (!isSelected && !isLatest && !needsFallback) continue
+
+                const turnMessages = this.turnTracker!.getMessagesForTurn(turn.turnId, allMessages)
+                if (turnMessages.length === 0) continue
+
+                turnChunks.push({
+                    turnId: turn.turnId,
+                    messages: turnMessages,
+                    droppable: !isLatest && hasSummary && !isPending && !isFailed,
+                })
+            }
+
+            // 3. Deterministic pruning: drop oldest droppable chunks if over budget
+            const budget = Math.floor(DEFAULT_MAX_TOKENS * 0.8) // leave room for tool defs + system
+            let assembledTokens = estimateTotalTokens(assembled)
+                + turnChunks.reduce((sum, c) => sum + estimateTotalTokens(c.messages), 0)
+            while (assembledTokens > budget && turnChunks.length > 0) {
+                const droppableIdx = turnChunks.findIndex(c => c.droppable)
+                if (droppableIdx === -1) break // nothing left to drop
+                const removed = turnChunks.splice(droppableIdx, 1)[0]
+                assembledTokens -= estimateTotalTokens(removed.messages)
+            }
+
+            // 4. Flatten remaining turn chunks into assembled context
+            for (const chunk of turnChunks) {
+                assembled.push(...chunk.messages)
+            }
+
+            // If no messages assembled (shouldn't happen), fallback
+            if (assembled.length === 0) {
+                return allMessages
+            }
+
+            return assembled
+        } catch (error) {
+            console.warn("[Agent] Context selection failed, falling back to full history:", error)
+            return allMessages
+        }
+    }
+
+    private enqueueCompletedTurn(): void {
+        if (!this.turnTracker || !this.summarizer || !this.summaryStore) return
+
+        this.turnTracker.observe(this.store.getAll())
+        const turns = this.turnTracker.getTurns()
+        if (turns.length === 0) return
+
+        // runLoop fires after the final assistant message is persisted,
+        // so the last turn is the completed one.
+        const completedTurn = turns[turns.length - 1]
+        if (this.summaryStore.isPending(completedTurn.turnId) || this.summaryStore.get(completedTurn.turnId)) {
+            return // already being summarized or already done
+        }
+
+        const turnMessages = this.turnTracker.getMessagesForTurn(completedTurn.turnId, this.store.getAll())
+        if (turnMessages.length === 0) return
+
+        // Update startMsgId/endMsgId from tracker before enqueueing
+        this.summarizer.enqueue(completedTurn.turnId, turnMessages)
+    }
+
+    private async *runLoop(signal?: AbortSignal, workingContext?: CoreMessage[], allowSummaryEnqueue = false): AsyncGenerator<AgentEvent> {
         this.activeSignal = signal
         const toolDefs = this.tools.getToolDefinitions()
         const store = this.store
@@ -217,11 +381,12 @@ export class Agent {
         const persistAssistantStep = (
             assistantContent: string,
             toolCalls: Array<{ toolCallId: string; toolName: string; args: Record<string, unknown> }>,
-        ): void => {
-            if (!assistantContent && toolCalls.length === 0) return
+        ): CoreMessage | null => {
+            if (!assistantContent && toolCalls.length === 0) return null
 
+            let msg: CoreMessage
             if (toolCalls.length === 0) {
-                store.add({ role: "assistant", content: assistantContent } as CoreMessage)
+                msg = { role: "assistant", content: assistantContent } as CoreMessage
             } else {
                 const parts: Array<TextPart | ToolCallPart> = []
                 if (assistantContent) {
@@ -235,8 +400,12 @@ export class Agent {
                         args: call.args,
                     })
                 }
-                store.add({ role: "assistant", content: parts } as CoreMessage)
+                msg = { role: "assistant", content: parts } as CoreMessage
             }
+
+            store.add(msg)
+            workingContext?.push(msg)
+            return msg
         }
 
         const compressionOpts: CompressionOptions = {}
@@ -248,7 +417,7 @@ export class Agent {
                     return
                 }
 
-                if (shouldCompress(store.getAll(), compressionOpts)) {
+                if (!this.summaryEnabled && shouldCompress(store.getAll(), compressionOpts)) {
                     const result = await compressContext(store, this.llm, signal)
                     if (result.status === "compressed") {
                         yield { type: "context_compressed", tokensBefore: result.tokensBefore!, tokensAfter: result.tokensAfter! }
@@ -258,7 +427,7 @@ export class Agent {
                 }
 
                 const stream = this.llm.stream(
-                    convertToolMessages(truncateMessages(store.getAll())),
+                    convertToolMessages(truncateMessages(workingContext ?? store.getAll())),
                     toolDefs,
                     systemPrompt ? { system: systemPrompt } : undefined,
                 )
@@ -343,10 +512,12 @@ export class Agent {
                 for (let i = 0; i < pendingToolEvents.length; i++) {
                     const call = pendingToolEvents[i]
                     const result = results[i]
-                    this.store.add({
+                    const toolMsg: CoreMessage = {
                         role: "tool",
                         content: [{ type: "tool-result", toolCallId: call.id, toolName: call.name, result: result.content, isError: result.isError }],
-                    } as CoreMessage)
+                    } as CoreMessage
+                    this.store.add(toolMsg)
+                    workingContext?.push(toolMsg)
                 }
 
                 for (let i = 0; i < pendingToolEvents.length; i++) {
@@ -356,6 +527,9 @@ export class Agent {
                 }
 
                 if (pendingToolEvents.length === 0 || finishReason.startsWith("error")) {
+                    if (finishReason === "stop" && allowSummaryEnqueue) {
+                        this.enqueueCompletedTurn()
+                    }
                     yield { type: "done", finishReason, usage: { ...this.totalUsage } }
                     return
                 }
@@ -401,16 +575,29 @@ export class Agent {
         }
     }
 
+    /** Reset all summary runtime state. Call when canonical history is externally mutated. */
+    private resetSummaryRuntime(): void {
+        this.summaryStore?.clear()
+        this.turnTracker?.reset()
+        this.summarizer?.abort()
+    }
+
     /** Force context compression (skips threshold check). Used by /compress command. */
     async forceCompress(): Promise<{ status: string; tokensBefore?: number; tokensAfter?: number }> {
-        return compressContext(this.store, this.llm)
+        const result = await compressContext(this.store, this.llm)
+        if (result.status === "compressed") {
+            this.resetSummaryRuntime()
+        }
+        return result
     }
 
     clearHistory(): void {
         this.store.clear()
+        this.resetSummaryRuntime()
     }
 
     replaceStore(newStore: MessageStore): void {
         this.store = newStore
+        this.resetSummaryRuntime()
     }
 }

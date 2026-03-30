@@ -13,7 +13,7 @@ export class ContextSelector {
         userMessage: string,
         summaries: TurnSummary[],
         turns: TurnMeta[],
-        opts?: { skipSelection?: boolean },
+        opts?: { skipSelection?: boolean; signal?: AbortSignal },
     ): Promise<SelectionResult> {
         const allSummaries = summaries.map(s =>
             `### ${s.turnId}\n${s.summary}`
@@ -31,6 +31,7 @@ export class ContextSelector {
         const response = await this.client.complete(
             SELECTION_SYSTEM_PROMPT,
             [{ role: "user", content: `## Available Turns\n${turnDescriptions}\n\n## Summaries\n${allSummaries}\n\n## New User Question\n${userMessage}` }],
+            opts?.signal,
         )
 
         let parsed: { fullTurns?: unknown }

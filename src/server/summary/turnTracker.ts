@@ -1,9 +1,8 @@
 import type { CoreMessage } from "ai"
 import type { TrackedTurnBoundary } from "./types.js"
 
-let turnCounter = 0
-
 export class TurnTracker {
+    private turnCounter = 0
     private nextMessageId = 1
     private messageIdToIndex = new Map<number, number>()
     private turns: TrackedTurnBoundary[] = []
@@ -29,7 +28,7 @@ export class TurnTracker {
                     }
                 }
                 // Start new turn
-                const turnId = `turn-${++turnCounter}`
+                const turnId = `turn-${++this.turnCounter}`
                 this.currentTurnId = turnId
                 this.currentTurnStartMsgId = msgId
                 this.turns.push({ turnId, startMsgId: msgId, endMsgId: msgId })
@@ -63,6 +62,7 @@ export class TurnTracker {
     }
 
     reset(): void {
+        this.turnCounter = 0
         this.nextMessageId = 1
         this.messageIdToIndex.clear()
         this.turns = []
