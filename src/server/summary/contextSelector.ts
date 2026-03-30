@@ -15,13 +15,12 @@ export class ContextSelector {
         turns: TurnMeta[],
         opts?: { skipSelection?: boolean; signal?: AbortSignal },
     ): Promise<SelectionResult> {
-        const allSummaries = summaries.map(s =>
-            `### ${s.turnId}\n${s.summary}`
-        ).join("\n\n")
-
         if (opts?.skipSelection) {
-            return { fullTurns: [], allSummaries }
+            return { fullTurns: [], allSummaries: summaries }
         }
+
+        // Format summaries only for the LLM prompt input — callers receive the raw array
+        const formattedForPrompt = summaries.map(s => `### ${s.turnId}\n${s.summary}`).join("\n\n")
 
         const turnDescriptions = turns.map(t => {
             const prefix = t.isPending ? "[PENDING] " : t.isFailed ? "[FAILED] " : ""
@@ -30,7 +29,7 @@ export class ContextSelector {
 
         const response = await this.client.complete(
             SELECTION_SYSTEM_PROMPT,
-            [{ role: "user", content: `## Available Turns\n${turnDescriptions}\n\n## Summaries\n${allSummaries}\n\n## New User Question\n${userMessage}` }],
+            [{ role: "user", content: `## Available Turns\n${turnDescriptions}\n\n## Summaries\n${formattedForPrompt}\n\n## New User Question\n${userMessage}` }],
             opts?.signal,
         )
 
@@ -49,6 +48,6 @@ export class ContextSelector {
         const fullTurns = (parsed.fullTurns as unknown[])
             .filter((id): id is string => typeof id === "string" && validTurnIds.has(id))
 
-        return { fullTurns, allSummaries }
+        return { fullTurns, allSummaries: summaries }
     }
 }

@@ -6,8 +6,8 @@ export class TurnTracker {
     private nextMessageId = 1
     private messageIdToIndex = new Map<number, number>()
     private turns: TrackedTurnBoundary[] = []
+    private turnIndex = new Map<string, TrackedTurnBoundary>()
     private lastObservedLength = 0
-    private currentTurnStartMsgId: number | null = null
     private currentTurnId: string | null = null
 
     observe(messages: CoreMessage[]): void {
@@ -20,25 +20,22 @@ export class TurnTracker {
             this.messageIdToIndex.set(msgId, i)
 
             if (msg.role === "user") {
-                // Close previous turn if any
-                if (this.currentTurnId !== null && this.currentTurnStartMsgId !== null) {
-                    const prevIdx = this.turns.findIndex(t => t.turnId === this.currentTurnId)
-                    if (prevIdx !== -1) {
-                        this.turns[prevIdx].endMsgId = msgId - 1
-                    }
+                // Close previous turn
+                if (this.currentTurnId !== null) {
+                    const prev = this.turnIndex.get(this.currentTurnId)
+                    if (prev) prev.endMsgId = msgId - 1
                 }
                 // Start new turn
                 const turnId = `turn-${++this.turnCounter}`
                 this.currentTurnId = turnId
-                this.currentTurnStartMsgId = msgId
-                this.turns.push({ turnId, startMsgId: msgId, endMsgId: msgId })
+                const boundary: TrackedTurnBoundary = { turnId, startMsgId: msgId, endMsgId: msgId }
+                this.turns.push(boundary)
+                this.turnIndex.set(turnId, boundary)
             } else {
                 // Extend current turn
                 if (this.currentTurnId !== null) {
-                    const currentTurn = this.turns[this.turns.length - 1]
-                    if (currentTurn) {
-                        currentTurn.endMsgId = msgId
-                    }
+                    const current = this.turnIndex.get(this.currentTurnId)
+                    if (current) current.endMsgId = msgId
                 }
             }
         }
@@ -51,7 +48,7 @@ export class TurnTracker {
     }
 
     getMessagesForTurn(turnId: string, messages: CoreMessage[]): CoreMessage[] {
-        const turn = this.turns.find(t => t.turnId === turnId)
+        const turn = this.turnIndex.get(turnId)
         if (!turn) return []
 
         const startIdx = this.messageIdToIndex.get(turn.startMsgId)
@@ -66,8 +63,8 @@ export class TurnTracker {
         this.nextMessageId = 1
         this.messageIdToIndex.clear()
         this.turns = []
+        this.turnIndex.clear()
         this.lastObservedLength = 0
-        this.currentTurnStartMsgId = null
         this.currentTurnId = null
     }
 }

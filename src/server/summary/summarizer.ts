@@ -1,11 +1,15 @@
 import type { CoreMessage } from "ai"
 import type { LLMClient } from "../../llm.js"
+import { CHARS_PER_TOKEN } from "../utils/truncateMessages.js"
+import { COMPRESSION_SYSTEM_PROMPT } from "../compression/prompt.js"
 import type { TurnSummaryStore } from "./turnSummaryStore.js"
-import { SUMMARY_SYSTEM_PROMPT } from "./prompts.js"
+import type { TurnSummary } from "./types.js"
 
 interface QueueItem {
     turnId: string
     messages: CoreMessage[]
+    startMsgId: number
+    endMsgId: number
 }
 
 export class Summarizer {
@@ -14,31 +18,27 @@ export class Summarizer {
     private queue: QueueItem[] = []
     private processing = false
     private activeAbortController: AbortController | null = null
-    private pendingOrSummarized = new Set<string>()
 
     constructor(client: LLMClient, store: TurnSummaryStore) {
         this.client = client
         this.store = store
     }
 
-    enqueue(turnId: string, messages: CoreMessage[]): void {
-        if (this.pendingOrSummarized.has(turnId)) return
+    enqueue(turnId: string, messages: CoreMessage[], startMsgId: number, endMsgId: number): void {
+        if (this.store.isPending(turnId) || this.store.get(turnId)) return
 
-        this.pendingOrSummarized.add(turnId)
         this.store.setPending(turnId)
-        this.queue.push({ turnId, messages })
+        this.queue.push({ turnId, messages, startMsgId, endMsgId })
         this.processQueue().catch(() => {})
     }
 
     abort(): void {
         this.activeAbortController?.abort()
         this.activeAbortController = null
-        // Mark queued items as failed so orphan pending state is cleared
         for (const item of this.queue) {
             this.store.setFailed(item.turnId, "aborted")
         }
         this.queue = []
-        this.pendingOrSummarized.clear()
         this.processing = false
     }
 
@@ -60,7 +60,7 @@ export class Summarizer {
 
         try {
             const summary = await this.client.complete(
-                SUMMARY_SYSTEM_PROMPT,
+                COMPRESSION_SYSTEM_PROMPT,
                 item.messages,
                 controller.signal,
             )
@@ -70,13 +70,13 @@ export class Summarizer {
                 return
             }
 
-            const turnSummary: import("./types.js").TurnSummary = {
+            const turnSummary: TurnSummary = {
                 turnId: item.turnId,
-                startMsgId: 0, // filled by caller
-                endMsgId: 0,
+                startMsgId: item.startMsgId,
+                endMsgId: item.endMsgId,
                 summary: summary.trim(),
                 createdAt: Date.now(),
-                tokenCount: Math.ceil(summary.length / 3.5),
+                tokenCount: Math.ceil(summary.length / CHARS_PER_TOKEN),
             }
 
             this.store.add(turnSummary)

@@ -21,7 +21,7 @@ describe("Summarizer", () => {
     it("successful summarization adds to store with tokenCount", async () => {
         mockComplete.mockResolvedValue("## Goal\nTest goal\n## Key Decisions\nNone\n## Files Changed\nNone\n## Current State\nDone\n## Important Context\nNone")
 
-        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }, { role: "assistant", content: "world" }] as CoreMessage[])
+        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }, { role: "assistant", content: "world" }] as CoreMessage[], 1, 2)
 
         await new Promise(resolve => setTimeout(resolve, 50))
 
@@ -35,7 +35,7 @@ describe("Summarizer", () => {
     it("empty LLM response marks as failed", async () => {
         mockComplete.mockResolvedValue("")
 
-        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }] as CoreMessage[])
+        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }] as CoreMessage[], 1, 1)
 
         await new Promise(resolve => setTimeout(resolve, 50))
 
@@ -48,7 +48,7 @@ describe("Summarizer", () => {
             setTimeout(() => reject(new Error("aborted")), 100)
         }))
 
-        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }] as CoreMessage[])
+        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }] as CoreMessage[], 1, 1)
         summarizer.abort()
 
         await new Promise(resolve => setTimeout(resolve, 200))
@@ -64,8 +64,8 @@ describe("Summarizer", () => {
             return "## Goal\nSummary"
         })
 
-        summarizer.enqueue("turn-1", [{ role: "user", content: "first" }] as CoreMessage[])
-        summarizer.enqueue("turn-2", [{ role: "user", content: "second" }] as CoreMessage[])
+        summarizer.enqueue("turn-1", [{ role: "user", content: "first" }] as CoreMessage[], 1, 1)
+        summarizer.enqueue("turn-2", [{ role: "user", content: "second" }] as CoreMessage[], 2, 2)
 
         // Wait for both to complete
         await new Promise(resolve => setTimeout(resolve, 200))
@@ -79,8 +79,8 @@ describe("Summarizer", () => {
     it("duplicate enqueue is ignored", async () => {
         mockComplete.mockResolvedValue("## Goal\nTest")
 
-        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }] as CoreMessage[])
-        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }] as CoreMessage[])
+        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }] as CoreMessage[], 1, 1)
+        summarizer.enqueue("turn-1", [{ role: "user", content: "hello" }] as CoreMessage[], 1, 1)
 
         await new Promise(resolve => setTimeout(resolve, 50))
 

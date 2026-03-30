@@ -19,7 +19,7 @@ import { TurnTracker } from "./summary/turnTracker.js"
 import { InMemoryTurnSummaryStore } from "./summary/turnSummaryStore.js"
 import { ContextSelector } from "./summary/contextSelector.js"
 import { Summarizer } from "./summary/summarizer.js"
-import type { TurnMeta } from "./summary/types.js"
+import type { TurnMeta, TurnChunk } from "./summary/types.js"
 import { estimateTotalTokens } from "./utils/truncateMessages.js"
 
 export interface AgentConfig {
@@ -85,8 +85,7 @@ export class Agent {
 
     private projectInstructions?: string
 
-    // Summary runtime (experimental)
-    private summaryEnabled: boolean = false
+    // Summary runtime (experimental) — feature is active when turnTracker is defined
     private turnTracker?: TurnTracker
     private summaryStore?: InMemoryTurnSummaryStore
     private contextSelector?: ContextSelector
@@ -130,8 +129,7 @@ export class Agent {
         })
 
         // Initialize summary runtime if enabled
-        this.summaryEnabled = config.summary?.enabled === true
-        if (this.summaryEnabled) {
+        if (config.summary?.enabled === true) {
             this.turnTracker = new TurnTracker()
             this.summaryStore = new InMemoryTurnSummaryStore()
             const summaryClient = this.createSummaryClient(config)
@@ -226,7 +224,7 @@ export class Agent {
         this.store.add({ role: "user", content: userMessage })
         this.turnTracker?.observe(this.store.getAll())
 
-        const workingContext = this.summaryEnabled
+        const workingContext = !!this.turnTracker
             ? await this.buildInitialWorkingContext(userMessage, signal)
             : this.store.getAll()
 
@@ -276,11 +274,12 @@ export class Agent {
             // Build assembled context
             const assembled: CoreMessage[] = []
 
-            // 1. Summary prefix
-            if (result.allSummaries) {
+            // 1. Summary prefix — format here so contextSelector stays format-agnostic
+            if (result.allSummaries.length > 0) {
+                const formatted = result.allSummaries.map(s => `### ${s.turnId}\n${s.summary}`).join("\n\n")
                 assembled.push({
                     role: "user",
-                    content: `[Context Summaries — per-turn summaries from earlier in the session]\n\n${result.allSummaries}`,
+                    content: `[Context Summaries — per-turn summaries from earlier in the session]\n\n${formatted}`,
                 })
                 assembled.push({
                     role: "assistant",
@@ -290,7 +289,6 @@ export class Agent {
 
             // 2. Full original messages for selected turns (as turn chunks for pruning)
             const selectedTurnIds = new Set(result.fullTurns)
-            interface TurnChunk { turnId: string; messages: CoreMessage[]; droppable: boolean }
             const turnChunks: TurnChunk[] = []
 
             for (const turn of turns) {
@@ -345,22 +343,16 @@ export class Agent {
     private enqueueCompletedTurn(): void {
         if (!this.turnTracker || !this.summarizer || !this.summaryStore) return
 
-        this.turnTracker.observe(this.store.getAll())
+        const allMessages = this.store.getAll()
+        this.turnTracker.observe(allMessages)
         const turns = this.turnTracker.getTurns()
         if (turns.length === 0) return
 
-        // runLoop fires after the final assistant message is persisted,
-        // so the last turn is the completed one.
         const completedTurn = turns[turns.length - 1]
-        if (this.summaryStore.isPending(completedTurn.turnId) || this.summaryStore.get(completedTurn.turnId)) {
-            return // already being summarized or already done
-        }
-
-        const turnMessages = this.turnTracker.getMessagesForTurn(completedTurn.turnId, this.store.getAll())
+        const turnMessages = this.turnTracker.getMessagesForTurn(completedTurn.turnId, allMessages)
         if (turnMessages.length === 0) return
 
-        // Update startMsgId/endMsgId from tracker before enqueueing
-        this.summarizer.enqueue(completedTurn.turnId, turnMessages)
+        this.summarizer.enqueue(completedTurn.turnId, turnMessages, completedTurn.startMsgId, completedTurn.endMsgId)
     }
 
     private async *runLoop(signal?: AbortSignal, workingContext?: CoreMessage[], allowSummaryEnqueue = false): AsyncGenerator<AgentEvent> {
@@ -404,7 +396,6 @@ export class Agent {
             }
 
             store.add(msg)
-            workingContext?.push(msg)
             return msg
         }
 
@@ -417,7 +408,7 @@ export class Agent {
                     return
                 }
 
-                if (!this.summaryEnabled && shouldCompress(store.getAll(), compressionOpts)) {
+                if (!!!this.turnTracker && shouldCompress(store.getAll(), compressionOpts)) {
                     const result = await compressContext(store, this.llm, signal)
                     if (result.status === "compressed") {
                         yield { type: "context_compressed", tokensBefore: result.tokensBefore!, tokensAfter: result.tokensAfter! }
@@ -439,7 +430,8 @@ export class Agent {
                 // Phase 1: consume the stream, collect content + tool calls
                 for await (const event of stream) {
                     if (isAborted()) {
-                        persistAssistantStep(assistantContent, toolCallsThisTurn)
+                        const msg = persistAssistantStep(assistantContent, toolCallsThisTurn)
+                        if (msg) workingContext?.push(msg)
                         yield { type: "done", finishReason: "interrupted" }
                         return
                     }
@@ -474,7 +466,8 @@ export class Agent {
                 }
 
                 // Phase 2: persist assistant BEFORE tool results (correct message order)
-                persistAssistantStep(assistantContent, toolCallsThisTurn)
+                const assistantMsg = persistAssistantStep(assistantContent, toolCallsThisTurn)
+                if (assistantMsg) workingContext?.push(assistantMsg)
 
                 // Phase 3a: serial permission pre-checks (one prompt at a time)
                 const permissionDecisions = new Map<string, boolean>()
