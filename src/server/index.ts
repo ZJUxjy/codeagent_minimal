@@ -563,6 +563,7 @@ process.stdin.resume()
 
 function cleanup(): void {
     skillWatcher?.stop().catch(() => {})
+    process.exit(0)
 }
 process.on("SIGTERM", cleanup)
 process.on("SIGINT", cleanup)

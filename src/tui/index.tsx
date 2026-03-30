@@ -4,7 +4,7 @@ import { App } from "./App.js";
 import { KeypressProvider } from "./contexts/KeypressContext.js";
 import type { ClientOptions } from "../client/index.js";
 
-export function startTUI(options: ClientOptions) {
+export async function startTUI(options: ClientOptions) {
     const instance = render(
         <KeypressProvider>
             <App
@@ -16,4 +16,5 @@ export function startTUI(options: ClientOptions) {
             />
         </KeypressProvider>,
     )
+    await instance.waitUntilExit()
 }

@@ -79,7 +79,10 @@ async function main() {
   };
 
   // 启动 TUI
-  startTUI(options);
+  await startTUI(options);
+  // Ink's exit() unmounts the React tree but does NOT call process.exit().
+  // After waitUntilExit() resolves, force exit to clean up child processes.
+  process.exit(0);
 }
 
 main().catch(console.error);
