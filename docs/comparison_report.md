@@ -26,7 +26,7 @@
 | **架构模式** | Client-Server (JSON-RPC over stdio) | 单体内核 + TUI/exec | Monolith | Client-Server (HTTP/WebSocket) |
 | **TUI 框架** | Ink (React) | Ratatui | Ink (React) | OpenTUI (SolidJS) |
 | **LLM SDK** | Vercel AI SDK | OpenAI API | OpenAI/Anthropic SDK | Vercel AI SDK |
-| **持久化** | JSONL + SessionIndex | Session rollout files | SQLite | SQLite + Drizzle ORM |
+| **持久化** | JSONL + SessionIndex | Session rollout files | JSONL + 文件系统 | SQLite + Drizzle ORM |
 
 ### 2.1 架构特点分析
 
@@ -54,7 +54,7 @@
 
 | 特性 | lop_minimal | codex | qwen-code | opencode |
 |------|-------------|-------|-----------|----------|
-| **支持提供商** | 7个 | 1个 (OpenAI) | 4+ | 20+ |
+| **支持提供商** | 7个 | 3个 (OpenAI/Ollama/LM Studio) | 5个 | ~20个 (19) |
 | **OAuth 集成** | ❌ | ❌ | ✅ Qwen OAuth | ✅ 多提供商 |
 | **本地模型** | ❌ | ❌ | ✅ | ✅ |
 | **配置格式** | config.json | config.toml | settings.json | 分层配置 |
@@ -63,7 +63,7 @@
 
 **lop_minimal**: OpenAI, Anthropic, OpenRouter, MiniMax, Google (Gemini), Kimi, GLM (智谱)
 
-**codex**: OpenAI (GPT-4o, etc.)
+**codex**: OpenAI/ChatGPT, Ollama, LM Studio
 
 **qwen-code**:
 - OpenAI 兼容 (Bailian, ModelScope, OpenRouter)
@@ -137,7 +137,7 @@
 
 ### 5.2 codex
 
-无内置 slash 命令，纯 AI 驱动。
+无传统 slash 命令，但有完整的 **Skills 系统**（`codex-skills` + `codex-core-skills` crate），通过技能注入驱动 agent 行为。
 
 ### 5.3 qwen-code
 
@@ -285,13 +285,13 @@ codex --sandbox danger-full-access # 完全访问
 
 - **Arena 模式**: 多模型对比
 - **Extensions 市场**: VS Code 风格的扩展生态
-- **Subagents**: YAML 配置的子代理系统
+- **Subagents**: Markdown + YAML frontmatter 配置的子代理系统（`.md` 文件，存于 `.qwen/agents/`）
 - **LSP 集成**: 完整的语言服务器支持
 - **多语言文档**: 中文、日文、德文、法文等
 
 ### 11.4 opencode
 
-- **20+ LLM 提供商**: 最广泛的模型支持
+- **~20 个 LLM 提供商 (19个)**: 最广泛的模型支持
 - **自动 Compaction**: 智能上下文压缩
 - **Doom Loop 检测**: 3 次相同调用自动触发权限确认
 - **Git 快照**: 每步自动快照，支持回滚
