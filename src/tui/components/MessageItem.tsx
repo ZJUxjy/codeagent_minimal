@@ -25,7 +25,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
     if (message.role === "user") {
         return (
-            <Box marginTop={0}>
+            <Box marginTop={1}>
                 <Text bold color={colors.status.success}>
                     {"> "}
                 </Text>

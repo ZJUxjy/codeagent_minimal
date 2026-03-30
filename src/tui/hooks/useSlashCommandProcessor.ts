@@ -122,11 +122,6 @@ export function useSlashCommandProcessor(
             return { type: 'handled' }
         }
 
-        // Add the command as a user message so groupIntoTurns creates a new turn
-        // boundary. Without this, all slash-command outputs share one Static turn
-        // and only the first result ever re-renders.
-        ui.addMessage({ role: 'user', content: trimmed })
-
         // 构建命令上下文
         const context: CommandContext = {
             client,

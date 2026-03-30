@@ -32,7 +32,7 @@ function groupIntoTurns(messages: Message[]): MessageTurn[] {
     return turns;
 }
 
-/** 用边框包裹一个对话回合 */
+/** 用边框包裹正在进行的对话回合 */
 const TurnBox: React.FC<{ colors: SemanticColors; children: React.ReactNode }> = ({
     colors,
     children,
@@ -51,18 +51,6 @@ const TurnBox: React.FC<{ colors: SemanticColors; children: React.ReactNode }> =
     </Box>
 );
 
-/** 渲染一个回合中的所有消息 */
-const TurnMessages: React.FC<{ messages: Message[]; colors: SemanticColors }> = ({
-    messages,
-    colors,
-}) => (
-    <>
-        {messages.map((msg) => (
-            <MessageItem key={msg.id} message={msg} colors={colors} />
-        ))}
-    </>
-);
-
 export const MessageList: React.FC<MessageListProps> = ({
     messages,
     streaming,
@@ -79,20 +67,28 @@ export const MessageList: React.FC<MessageListProps> = ({
     );
     const activeTurn = hasActiveTurn ? turns[turns.length - 1] : null;
 
+    // Flatten completed turns into individual messages so Static keys by message
+    // id rather than turn id. This prevents the frozen-turn bug where new messages
+    // added to an existing turn are silently dropped by Static's once-only render.
+    const completedMessages = React.useMemo(
+        () => completedTurns.flatMap(t => t.messages),
+        [completedTurns],
+    );
+
     return (
         <Box flexDirection="column" marginBottom={0}>
-            <Static items={completedTurns}>
-                {(turn) => (
-                    <TurnBox key={turn.id} colors={colors}>
-                        <TurnMessages messages={turn.messages} colors={colors} />
-                    </TurnBox>
+            <Static items={completedMessages}>
+                {(msg) => (
+                    <MessageItem key={msg.id} message={msg} colors={colors} />
                 )}
             </Static>
 
             {/* 正在进行的回合不放入 Static（需要实时更新） */}
             {activeTurn ? (
                 <TurnBox colors={colors}>
-                    <TurnMessages messages={activeTurn.messages} colors={colors} />
+                    {activeTurn.messages.map((msg) => (
+                        <MessageItem key={msg.id} message={msg} colors={colors} />
+                    ))}
                     {streaming.thinkingContent ? (
                         <Box marginTop={1}>
                             <ThinkingMessage
