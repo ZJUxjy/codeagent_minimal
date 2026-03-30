@@ -32,7 +32,8 @@ export function convertToolMessages(messages: CoreMessage[]): CoreMessage[] {
             const text = parts
                 .map((p: any) => {
                     if (p.type === "tool-result") {
-                        const body = typeof p.result === "string" ? p.result : JSON.stringify(p.result)
+                        const raw = typeof p.result === "string" ? p.result : JSON.stringify(p.result)
+                        const body = capToolResult(raw)
                         return `[Tool Result: ${p.toolName}]\n${body}`
                     }
                     return JSON.stringify(p)
@@ -50,6 +51,30 @@ export function convertToolMessages(messages: CoreMessage[]): CoreMessage[] {
         }
     }
     return result
+}
+
+/**
+ * Cap individual tool result bodies to this many characters before sending to the LLM.
+ * ~25 000 chars ≈ 7 000 tokens — large enough for real output, small enough to never
+ * single-handedly blow past a 128 K-token context window.
+ * Qwen-code uses 25 000 chars; opencode uses 50 KB — we match the tighter bound.
+ */
+export const MAX_TOOL_RESULT_CHARS = 25_000
+
+/**
+ * Truncates a single tool result body so it fits within MAX_TOOL_RESULT_CHARS.
+ * When truncation occurs, a marker replaces the omitted middle section so the
+ * model knows output was cut and roughly how much was dropped.
+ *
+ * @param body  Raw string content of the tool result
+ * @param limit Maximum character budget (default MAX_TOOL_RESULT_CHARS)
+ * @returns     Original string if within limit, otherwise a truncated version
+ */
+export function capToolResult(body: string, limit = MAX_TOOL_RESULT_CHARS): string {
+    if (body.length <= limit) return body
+    const half = Math.floor(limit / 2)
+    const omitted = body.length - limit
+    return body.slice(0, half) + `\n... [${omitted} chars truncated] ...\n` + body.slice(body.length - half)
 }
 
 /** Conservative estimate: ~3.5 chars per token for mixed code/text */
