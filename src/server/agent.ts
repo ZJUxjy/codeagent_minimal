@@ -14,6 +14,7 @@ import { shouldCompress, compressContext, type CompressionOptions } from "./comp
 import { FileIndexManager } from "./indexing/fileIndexManager.js"
 import type { Skill } from "./skills/types.js"
 import { buildSkillsPromptSection } from "./skills/loader.js"
+import { BASE_SYSTEM_PROMPT } from "./prompts/baseSystemPrompt.js"
 import { createSkillTool } from "./tools/skill.js"
 import { TurnTracker } from "./summary/turnTracker.js"
 import { InMemoryTurnSummaryStore } from "./summary/turnSummaryStore.js"
@@ -202,6 +203,7 @@ export class Agent {
         const toolDefs = this.tools.getToolDefinitions()
         const toolDefTokens = Math.ceil(JSON.stringify(toolDefs).length / CHARS_PER_TOKEN)
         const systemParts = [
+            BASE_SYSTEM_PROMPT,
             this.projectInstructions,
             this.buildSkillsPrompt(this.skills),
         ].filter((p): p is string => Boolean(p && p.trim()))
@@ -360,6 +362,7 @@ export class Agent {
         const toolDefs = this.tools.getToolDefinitions()
         const store = this.store
         const systemParts = [
+            BASE_SYSTEM_PROMPT,
             this.projectInstructions,
             await this.buildSubagentReminder(),
             this.buildSkillsPrompt(this.skills),
