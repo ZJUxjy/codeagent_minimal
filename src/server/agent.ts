@@ -96,6 +96,10 @@ export class Agent {
     /** Accumulated token usage across all turns in this session. */
     private totalUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
+    /** Cached system prompt parts (loaded once at start of each run). */
+    private cachedMemories?: string
+    private cachedSubagentReminder?: string
+
     constructor(config: AgentConfig) {
         const { store, tools, mcpConfig, maxTurns, hooks, questionBridge, projectInstructions, ...snapshot } = config
         this.questionBridge = questionBridge
@@ -206,6 +210,8 @@ export class Agent {
         const systemParts = [
             BASE_SYSTEM_PROMPT,
             this.projectInstructions,
+            this.cachedMemories,
+            this.cachedSubagentReminder,
             this.buildSkillsPrompt(this.skills),
         ].filter((p): p is string => Boolean(p && p.trim()))
         const systemTokens = Math.ceil(systemParts.join("\n\n").length / CHARS_PER_TOKEN)
@@ -364,15 +370,14 @@ export class Agent {
         const store = this.store
 
         // Build system prompt: base + instructions + memories + skills + subagent reminder
-        const [memories, subagentReminder] = await Promise.all([
-            loadMemories(this.cwd),
-            this.buildSubagentReminder(),
-        ])
+        // Cache memories and subagent reminder for reuse in getContextInfo
+        this.cachedMemories = await loadMemories(this.cwd)
+        this.cachedSubagentReminder = await this.buildSubagentReminder()
         const systemParts = [
             BASE_SYSTEM_PROMPT,
             this.projectInstructions,
-            memories,
-            subagentReminder,
+            this.cachedMemories,
+            this.cachedSubagentReminder,
             this.buildSkillsPrompt(this.skills),
         ].filter((part): part is string => Boolean(part && part.trim()))
         const systemPrompt = systemParts.length > 0 ? systemParts.join("\n\n") : undefined

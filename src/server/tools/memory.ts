@@ -56,15 +56,14 @@ export const saveMemoryTool: Tool = {
 /** Load memories from MEMORY.md files to inject into system prompt */
 export async function loadMemories(cwd: string): Promise<string | undefined> {
     const sources = [
-        getProjectMemoryPath(cwd),
-        GLOBAL_MEMORY_PATH,
+        { path: getProjectMemoryPath(cwd), label: "Project memories" },
+        { path: GLOBAL_MEMORY_PATH, label: "Global memories" },
     ]
 
     const sections: string[] = []
-    for (const filePath of sources) {
+    for (const { path: filePath, label } of sources) {
         try {
             const content = await readFile(filePath, "utf-8")
-            const label = filePath.startsWith(cwd) ? "Project memories" : "Global memories"
             sections.push(`### ${label}\n${content.trim()}`)
         } catch {
             // file does not exist or is unreadable

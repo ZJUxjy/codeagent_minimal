@@ -15,7 +15,7 @@ export const webfetchTool: Tool = {
             .describe("Return format. markdown strips tags and formats links. text is plain. html is raw."),
         timeout: z.number().optional().describe("Timeout in seconds (max 30, default 10)"),
     }),
-    async execute({ url, format, timeout }: { url: string; format: string; timeout?: number }, _ctx: ToolContext) {
+    async execute({ url, format, timeout }: { url: string; format: "markdown" | "text" | "html"; timeout?: number }, _ctx: ToolContext) {
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             return "Error: URL must start with http:// or https://"
         }
@@ -33,6 +33,31 @@ export const webfetchTool: Tool = {
             clearTimeout(timer)
         }
     },
+}
+
+/** Stream a response body with a byte limit — avoids buffering huge responses into memory. */
+async function readBodyWithLimit(body: ReadableStream<Uint8Array>, maxBytes: number): Promise<string | null> {
+    const reader = body.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    try {
+        while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            total += value.byteLength
+            if (total > maxBytes) return null
+            chunks.push(value)
+        }
+    } finally {
+        reader.releaseLock()
+    }
+    const concat = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+        concat.set(chunk, offset)
+        offset += chunk.byteLength
+    }
+    return new TextDecoder().decode(concat)
 }
 
 // Best-effort SSRF protection: regex-based hostname check.
@@ -80,8 +105,8 @@ async function fetchAndConvert(url: string, format: string, signal: AbortSignal,
         if (!res.ok) return `Error: HTTP ${res.status} ${res.statusText}`
         const contentLength = Number(res.headers.get("content-length") ?? 0)
         if (contentLength > MAX_BYTES) return `Error: response too large (${contentLength} bytes, max 2MB)`
-        const rawText = await res.text()
-        if (Buffer.byteLength(rawText) > MAX_BYTES) return "Error: response body too large (max 2MB)"
+        const rawText = await readBodyWithLimit(res.body!, MAX_BYTES)
+        if (rawText === null) return "Error: response body too large (max 2MB)"
         if (format === "html") return rawText
         if (format === "text") return htmlToText(rawText)
         return htmlToMarkdown(rawText)

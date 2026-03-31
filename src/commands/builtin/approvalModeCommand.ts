@@ -1,11 +1,11 @@
 import { CommandKind, type SlashCommand, type CommandContext, type SlashCommandActionReturn } from '../types.js'
 
-const VALID_MODES = ["default", "cautious", "auto"] as const
+const VALID_MODES = ["default", "cautious", "auto", "plan"] as const
 
 export const approvalModeCommand: SlashCommand = {
     name: 'approval-mode',
     altNames: ['am'],
-    description: 'Set or show approval mode (default | cautious | auto)',
+    description: 'Set or show approval mode (default | cautious | auto | plan)',
     kind: CommandKind.BUILT_IN,
 
     action: (context, args): SlashCommandActionReturn => {
@@ -15,7 +15,7 @@ export const approvalModeCommand: SlashCommand = {
             const current = context.config.approvalMode ?? "default"
             return {
                 type: 'message',
-                content: `Current approval mode: ${current}\nModes: default (ask for dangerous), cautious (ask for all writes), auto (allow all)`,
+                content: `Current approval mode: ${current}\nModes: default (ask for dangerous), cautious (ask for all writes), auto (allow all), plan (no writes)`,
             }
         }
 
@@ -28,7 +28,7 @@ export const approvalModeCommand: SlashCommand = {
         }
 
         if (context.client) {
-            context.client.setApprovalMode(mode as any).catch(() => {})
+            context.client.setApprovalMode(mode as typeof VALID_MODES[number]).catch(() => {})
         }
 
         return { type: 'message', content: `Approval mode set to: ${mode}` }
