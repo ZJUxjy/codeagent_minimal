@@ -1,0 +1,688 @@
+# New Tools Implementation Plan: webfetch · todowrite · memory · batch · plan_mode
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add 5 new tools/features to lop_minimal, informed by opencode and qwen-code implementations. Each tool follows the existing `Tool` interface pattern in `src/server/tools/`.
+
+**Reference codebases:**
+- opencode: `/home/ubuntu/code/opencode/packages/opencode/src/tool/`
+- qwen-code: `/home/ubuntu/code/qwen-code/packages/core/src/tools/`
+
+**Tech Stack:** TypeScript, Zod, existing ToolRegistry + PermissionEngine
+
+---
+
+## Design Decisions (pre-settled)
+
+### 1. webfetch
+- **Name:** `webfetch` (matches opencode; more descriptive than qwen's `web_fetch`)
+- **Parameters:** `url: string`, `format: "text" | "markdown" | "html"` (default markdown), optional `timeout: number`
+- **Implementation:** Native `fetch()` + `node-html-parser` or regex strip for HTML→text. No LLM-in-the-loop (qwen-code approach adds latency/cost). Cap response at 2MB. Require `ask` permission.
+- **Why not qwen's approach:** qwen passes fetched content through Gemini again — adds cost and latency. opencode's plain conversion is simpler and composable.
+
+### 2. todowrite
+- **Name:** `todowrite` (matches opencode)
+- **Parameters:** `todos: Array<{ id: string, content: string, status: "pending"|"in_progress"|"completed", priority?: "high"|"medium"|"low" }>`
+- **Storage:** JSON file at `.lop/todos/{sessionId}.json` (per-session, like qwen-code). In-memory fallback if no sessionId.
+- **Design:** Full replace on each call (opencode approach) — simpler than diff-based. Enforce max 1 `in_progress` at a time.
+- **No DB required** — file-based storage keeps it simple (no SQLite dependency like opencode).
+
+### 3. memory
+- **Name:** `save_memory`
+- **Parameters:** `fact: string`, `scope: "global" | "project"` (default: project)
+- **Storage:** Appends to `MEMORY.md` in project root (scope=project) or `~/.lop/MEMORY.md` (scope=global) under a `## Memories` section.
+- **Why Markdown file:** qwen-code approach — simple, human-readable, survives tool restarts, users can edit directly. opencode relies on DB which adds infrastructure.
+- **Auto-injection:** At session start, read `MEMORY.md` and inject into system prompt as additional context (like project instructions).
+
+### 4. batch
+- **Name:** `batch`
+- **Parameters:** `tool_calls: Array<{ tool: string, parameters: Record<string, unknown> }>`
+- **Cap:** 10 tool calls max (vs opencode's 25 — more conservative for our use case).
+- **Execution:** `Promise.all()` for true parallelism. Each sub-call goes through PermissionEngine.
+- **Restriction:** Cannot batch `batch` itself. No MCP tools.
+- **Why explicit tool vs scheduler strategy:** opencode has a dedicated `batch` tool which is more transparent to the model. qwen-code's scheduler-level approach is implicit. Explicit is better.
+
+### 5. plan_mode
+- **Name:** `exit_plan_mode` tool + `ApprovalMode.PLAN` state
+- **Parameters for exit tool:** `plan: string` (the full plan text)
+- **Design:** Add `"plan"` to `ApprovalMode` type. In plan mode, PermissionEngine returns `"deny"` for all mutating tools (`write`, `edit`, `bash`) and `"allow"` for read-only tools. The `exit_plan_mode` tool asks user for confirmation, then switches mode to `"default"`.
+- **Slash command:** `/plan` to enter plan mode (sets approvalMode to "plan").
+- **Why not opencode's two-agent approach:** Too complex for our architecture. qwen-code's simpler ApprovalMode.PLAN is a better fit.
+
+---
+
+## File Structure
+
+| File | Action | Notes |
+|------|--------|-------|
+| `src/server/tools/webfetch.ts` | **Create** | webfetch tool |
+| `src/server/tools/todowrite.ts` | **Create** | todowrite tool |
+| `src/server/tools/memory.ts` | **Create** | save_memory tool |
+| `src/server/tools/batch.ts` | **Create** | batch tool |
+| `src/server/tools/exitPlanMode.ts` | **Create** | exit_plan_mode tool |
+| `src/server/tools/index.ts` | **Modify** | register all 5 new tools |
+| `src/server/security/permissionEngine.ts` | **Modify** | add "plan" to ApprovalMode, deny mutating tools in plan mode |
+| `src/protocol/types.ts` | **Modify** | add "plan" to approvalMode union |
+| `src/client/index.ts` | **Modify** | update setApprovalMode type |
+| `src/index.ts` | **Modify** | add "plan" to CLI --approval-mode parsing |
+| `src/server/index.ts` | **Modify** | add "plan" to set_approval_mode handler |
+| `src/commands/builtin/approvalModeCommand.ts` | **Modify** | add "plan" to VALID_MODES, update help text |
+| `src/commands/builtin/planCommand.ts` | **Create** | /plan slash command to enter plan mode |
+| `src/commands/index.ts` | **Modify** | register planCommand |
+
+---
+
+## Task 1: webfetch tool
+
+**Files:** Create `src/server/tools/webfetch.ts`
+
+- [ ] **Step 1: Create the tool**
+
+```typescript
+// src/server/tools/webfetch.ts
+import { z } from "zod"
+import type { Tool, ToolContext } from "./types.js"
+
+const MAX_BYTES = 2 * 1024 * 1024 // 2MB
+
+export const webfetchTool: Tool = {
+    name: "webfetch",
+    description: `Fetch content from a URL and return it as text, markdown, or raw HTML.
+- Requires network access — use only for public URLs
+- Response capped at 2MB
+- For local files, use the read tool instead`,
+    parameters: z.object({
+        url: z.string().describe("The URL to fetch (must start with http:// or https://)"),
+        format: z.enum(["markdown", "text", "html"]).default("markdown")
+            .describe("Return format. markdown strips tags and formats links. text is plain. html is raw."),
+        timeout: z.number().optional().describe("Timeout in seconds (max 30, default 10)"),
+    }),
+    permission: "ask",
+
+    async execute({ url, format, timeout }: { url: string; format: string; timeout?: number }, ctx: ToolContext) {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return { content: "Error: URL must start with http:// or https://" }
+        }
+
+        const timeoutMs = Math.min((timeout ?? 10), 30) * 1000
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+        try {
+            const res = await fetch(url, {
+                signal: controller.signal,
+                headers: { "User-Agent": "lop-minimal/1.0" },
+            })
+
+            if (!res.ok) {
+                return { content: `Error: HTTP ${res.status} ${res.statusText}` }
+            }
+
+            // Check size via Content-Length before reading body
+            const contentLength = Number(res.headers.get("content-length") ?? 0)
+            if (contentLength > MAX_BYTES) {
+                return { content: `Error: response too large (${contentLength} bytes, max 2MB)` }
+            }
+
+            const rawText = await res.text()
+            if (Buffer.byteLength(rawText) > MAX_BYTES) {
+                return { content: `Error: response body too large (max 2MB)` }
+            }
+
+            if (format === "html") return { content: rawText }
+            if (format === "text") return { content: htmlToText(rawText) }
+            return { content: htmlToMarkdown(rawText) }
+        } finally {
+            clearTimeout(timer)
+        }
+    },
+}
+
+/** Strip HTML tags and collapse whitespace */
+function htmlToText(html: string): string {
+    return html
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+}
+
+/** Minimal HTML→Markdown: headers, links, code, paragraphs */
+function htmlToMarkdown(html: string): string {
+    return html
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, text) =>
+            "\n" + "#".repeat(Number(level)) + " " + stripTags(text) + "\n")
+        .replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href, text) =>
+            `[${stripTags(text)}](${href})`)
+        .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (_, code) => "`" + code + "`")
+        .replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, (_, code) => "\n```\n" + stripTags(code) + "\n```\n")
+        .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, text) => "- " + stripTags(text) + "\n")
+        .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, (_, text) => "\n" + stripTags(text) + "\n")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim()
+}
+
+function stripTags(s: string): string {
+    return s.replace(/<[^>]+>/g, "").trim()
+}
+```
+
+- [ ] **Step 2: Register in ToolRegistry**
+
+In `src/server/tools/index.ts`, add:
+```typescript
+import { webfetchTool } from "./webfetch.js"
+// ...in constructor:
+this.register(webfetchTool)
+```
+
+- [ ] **Step 3: Build and verify**
+
+```bash
+npx tsc -p tsconfig.json --noEmit 2>&1 | grep -v chokidar
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/server/tools/webfetch.ts src/server/tools/index.ts
+git commit -m "feat: add webfetch tool"
+```
+
+---
+
+## Task 2: todowrite tool
+
+**Files:** Create `src/server/tools/todowrite.ts`
+
+- [ ] **Step 1: Create the tool**
+
+```typescript
+// src/server/tools/todowrite.ts
+import { z } from "zod"
+import { readFile, writeFile, mkdir } from "fs/promises"
+import { existsSync } from "fs"
+import * as path from "path"
+import * as os from "os"
+import type { Tool, ToolContext } from "./types.js"
+
+const TodoItem = z.object({
+    id: z.string().describe("Unique identifier for the todo item"),
+    content: z.string().min(1).describe("Brief description of the task"),
+    status: z.enum(["pending", "in_progress", "completed"]).describe("Current status"),
+    priority: z.enum(["high", "medium", "low"]).optional().describe("Priority level"),
+})
+
+export const todowriteTool: Tool = {
+    name: "todowrite",
+    description: `Manage a structured todo list for tracking tasks in the current session.
+- Use for tasks with 3 or more distinct steps
+- Keep at most one item in_progress at a time
+- Update in real-time as work progresses — do not batch updates
+- The list persists for the session and is shown to the user`,
+    parameters: z.object({
+        todos: z.array(TodoItem).describe("The complete updated todo list (full replace)"),
+    }),
+
+    async execute({ todos }: { todos: z.infer<typeof TodoItem>[] }, ctx: ToolContext) {
+        // Validate: at most one in_progress
+        const inProgress = todos.filter(t => t.status === "in_progress")
+        if (inProgress.length > 1) {
+            return { content: "Error: at most one todo item can be in_progress at a time" }
+        }
+
+        // Validate: unique IDs
+        const ids = todos.map(t => t.id)
+        if (new Set(ids).size !== ids.length) {
+            return { content: "Error: todo item IDs must be unique" }
+        }
+
+        // Persist to .lop/todos/<sessionId>.json
+        const sessionId = (ctx as any).sessionId ?? "default"
+        const todoDir = path.join(process.cwd(), ".lop", "todos")
+        if (!existsSync(todoDir)) {
+            await mkdir(todoDir, { recursive: true })
+        }
+        const todoFile = path.join(todoDir, `${sessionId}.json`)
+        await writeFile(todoFile, JSON.stringify(todos, null, 2), "utf-8")
+
+        const pending = todos.filter(t => t.status === "pending").length
+        const done = todos.filter(t => t.status === "completed").length
+        const summary = todos.length === 0
+            ? "Todo list cleared."
+            : `Todo list updated: ${todos.length} items (${pending} pending, ${done} completed)`
+
+        return {
+            content: summary + "\n\n" + JSON.stringify(todos, null, 2),
+        }
+    },
+}
+```
+
+- [ ] **Step 2: Register in ToolRegistry**
+
+In `src/server/tools/index.ts`, add:
+```typescript
+import { todowriteTool } from "./todowrite.js"
+// ...in constructor:
+this.register(todowriteTool)
+```
+
+- [ ] **Step 3: Build and verify**
+
+```bash
+npx tsc -p tsconfig.json --noEmit 2>&1 | grep -v chokidar
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/server/tools/todowrite.ts src/server/tools/index.ts
+git commit -m "feat: add todowrite tool"
+```
+
+---
+
+## Task 3: save_memory tool
+
+**Files:** Create `src/server/tools/memory.ts`
+
+- [ ] **Step 1: Create the tool**
+
+```typescript
+// src/server/tools/memory.ts
+import { z } from "zod"
+import { readFile, writeFile, mkdir } from "fs/promises"
+import { existsSync } from "fs"
+import * as path from "path"
+import * as os from "os"
+import type { Tool, ToolContext } from "./types.js"
+
+const SECTION_HEADER = "## Memories"
+const GLOBAL_MEMORY_PATH = path.join(os.homedir(), ".lop", "MEMORY.md")
+
+function getProjectMemoryPath(cwd: string): string {
+    return path.join(cwd, "MEMORY.md")
+}
+
+async function appendMemory(filePath: string, fact: string): Promise<void> {
+    const dir = path.dirname(filePath)
+    if (!existsSync(dir)) await mkdir(dir, { recursive: true })
+
+    let content = ""
+    if (existsSync(filePath)) {
+        content = await readFile(filePath, "utf-8")
+    }
+
+    if (!content.includes(SECTION_HEADER)) {
+        content = content.trimEnd() + (content ? "\n\n" : "") + SECTION_HEADER + "\n"
+    }
+
+    content = content.trimEnd() + "\n- " + fact + "\n"
+    await writeFile(filePath, content, "utf-8")
+}
+
+export const saveMemoryTool: Tool = {
+    name: "save_memory",
+    description: `Save a fact or piece of information to persistent memory across sessions.
+- scope=project saves to MEMORY.md in the current project directory
+- scope=global saves to ~/.lop/MEMORY.md shared across all projects
+- Memories are automatically loaded as context at session start
+- Use for preferences, conventions, and important facts worth remembering`,
+    parameters: z.object({
+        fact: z.string().min(1).describe("The fact or information to remember"),
+        scope: z.enum(["project", "global"]).default("project")
+            .describe("Where to save: project (current repo) or global (all projects)"),
+    }),
+
+    async execute({ fact, scope }: { fact: string; scope: "project" | "global" }, ctx: ToolContext) {
+        const cwd = (ctx as any).cwd ?? process.cwd()
+        const filePath = scope === "global"
+            ? GLOBAL_MEMORY_PATH
+            : getProjectMemoryPath(cwd)
+
+        await appendMemory(filePath, fact)
+        return { content: `Memory saved (${scope}): ${fact}` }
+    },
+}
+
+/** Load memories from MEMORY.md files to inject into system prompt */
+export async function loadMemories(cwd: string): Promise<string | undefined> {
+    const sources = [
+        getProjectMemoryPath(cwd),
+        GLOBAL_MEMORY_PATH,
+    ]
+
+    const sections: string[] = []
+    for (const filePath of sources) {
+        if (!existsSync(filePath)) continue
+        try {
+            const content = await readFile(filePath, "utf-8")
+            const label = filePath.startsWith(cwd) ? "Project memories" : "Global memories"
+            sections.push(`### ${label}\n${content.trim()}`)
+        } catch {
+            // ignore unreadable files
+        }
+    }
+
+    if (sections.length === 0) return undefined
+    return `# Persistent Memory\n\n${sections.join("\n\n")}`
+}
+```
+
+- [ ] **Step 2: Register in ToolRegistry**
+
+In `src/server/tools/index.ts`, add:
+```typescript
+import { saveMemoryTool } from "./memory.js"
+// ...in constructor:
+this.register(saveMemoryTool)
+```
+
+- [ ] **Step 3: Inject memories into system prompt in agent.ts**
+
+In `src/server/agent.ts`, import `loadMemories` and add it to `systemParts`:
+
+```typescript
+import { loadMemories } from "./tools/memory.js"
+
+// In getContextInfo() and runLoop(), add to systemParts:
+const memoriesPrompt = await loadMemories(this.cwd)
+const systemParts = [
+    BASE_SYSTEM_PROMPT,
+    memoriesPrompt,           // <-- add here
+    this.projectInstructions,
+    await this.buildSubagentReminder(),
+    this.buildSkillsPrompt(this.skills),
+].filter((part): part is string => Boolean(part && part.trim()))
+```
+
+- [ ] **Step 4: Build and verify**
+
+```bash
+npx tsc -p tsconfig.json --noEmit 2>&1 | grep -v chokidar
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/server/tools/memory.ts src/server/tools/index.ts src/server/agent.ts
+git commit -m "feat: add save_memory tool with project/global scope and auto-injection"
+```
+
+---
+
+## Task 4: batch tool
+
+**Files:** Create `src/server/tools/batch.ts`
+
+- [ ] **Step 1: Create the tool**
+
+```typescript
+// src/server/tools/batch.ts
+import { z } from "zod"
+import type { Tool, ToolContext } from "./types.js"
+
+const MAX_BATCH = 10
+const DISALLOWED = new Set(["batch"])
+
+export function createBatchTool(getTools: () => Map<string, Tool>): Tool {
+    return {
+        name: "batch",
+        description: `Execute multiple tool calls in parallel for efficiency.
+- Use when operations are independent (reading multiple files, writing unrelated files)
+- Do NOT use when operations depend on each other's results
+- Cannot batch the batch tool itself
+- Max ${MAX_BATCH} calls per batch`,
+        parameters: z.object({
+            tool_calls: z.array(z.object({
+                tool: z.string().describe("Tool name to execute"),
+                parameters: z.record(z.unknown()).describe("Parameters for the tool"),
+            }))
+            .min(1, "Provide at least one tool call")
+            .max(MAX_BATCH, `Max ${MAX_BATCH} tool calls per batch`),
+        }),
+
+        async execute(
+            { tool_calls }: { tool_calls: Array<{ tool: string; parameters: Record<string, unknown> }> },
+            ctx: ToolContext,
+        ) {
+            const tools = getTools()
+            const results = await Promise.all(
+                tool_calls.map(async (call) => {
+                    if (DISALLOWED.has(call.tool)) {
+                        return { tool: call.tool, error: "batch cannot call itself" }
+                    }
+                    const tool = tools.get(call.tool)
+                    if (!tool) {
+                        return { tool: call.tool, error: `unknown tool: ${call.tool}` }
+                    }
+                    try {
+                        const parsed = tool.parameters.parse(call.parameters)
+                        const result = await tool.execute(parsed, ctx)
+                        return { tool: call.tool, result: result.content }
+                    } catch (err: any) {
+                        return { tool: call.tool, error: err?.message ?? String(err) }
+                    }
+                }),
+            )
+
+            const failed = results.filter(r => "error" in r).length
+            const succeeded = results.length - failed
+            const summary = `Batch: ${results.length} calls, ${succeeded} succeeded, ${failed} failed`
+            const details = results.map(r =>
+                "error" in r ? `[${r.tool}] ERROR: ${r.error}` : `[${r.tool}] OK`
+            ).join("\n")
+
+            return { content: `${summary}\n\n${details}` }
+        },
+    }
+}
+```
+
+- [ ] **Step 2: Register in ToolRegistry**
+
+The batch tool needs access to the registry's own tool map, so registration is slightly different.
+In `src/server/tools/index.ts`:
+
+```typescript
+import { createBatchTool } from "./batch.js"
+
+// After registering all other tools, add batch last:
+this.register(createBatchTool(() => this.tools))
+```
+
+- [ ] **Step 3: Build and verify**
+
+```bash
+npx tsc -p tsconfig.json --noEmit 2>&1 | grep -v chokidar
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/server/tools/batch.ts src/server/tools/index.ts
+git commit -m "feat: add batch tool for parallel tool execution"
+```
+
+---
+
+## Task 5: plan_mode
+
+**Files:** Create `src/server/tools/exitPlanMode.ts`, `src/commands/builtin/planCommand.ts`; modify PermissionEngine, types, and approval mode references.
+
+### Step 1: Add "plan" to ApprovalMode everywhere
+
+In `src/server/security/permissionEngine.ts`:
+```typescript
+export type ApprovalMode = "default" | "cautious" | "auto" | "plan"
+
+// In check():
+if (this.approvalMode === "plan") return this.planModeDefault(toolName)
+
+private planModeDefault(toolName: string): PermissionLevel {
+    const mutatingTools = new Set(["bash", "write", "edit"])
+    return mutatingTools.has(toolName) ? "deny" : "allow"
+}
+```
+
+Update the union type in:
+- `src/protocol/types.ts`: `approvalMode?: "default" | "cautious" | "auto" | "plan"`
+- `src/client/index.ts`: `setApprovalMode(mode: "default" | "cautious" | "auto" | "plan")`
+- `src/index.ts`: add `|| mode === 'plan'` to CLI check
+- `src/server/index.ts`: update cast type
+- `src/commands/builtin/approvalModeCommand.ts`: add "plan" to VALID_MODES, update help text
+
+- [ ] **Step 2: Create exit_plan_mode tool**
+
+```typescript
+// src/server/tools/exitPlanMode.ts
+import { z } from "zod"
+import type { Tool, ToolContext } from "./types.js"
+
+export const exitPlanModeTool: Tool = {
+    name: "exit_plan_mode",
+    description: `Present your plan to the user and request approval to start implementing.
+Call this when you have finished analyzing the task and are ready to begin making changes.
+Include the complete plan in the 'plan' parameter — it will be shown to the user for review.
+The user can approve (switches to default mode, allowing file edits) or cancel (stays in plan mode).`,
+    parameters: z.object({
+        plan: z.string().min(1).describe("The complete implementation plan to present to the user"),
+    }),
+
+    async execute({ plan }: { plan: string }, ctx: ToolContext) {
+        const approved = await ctx.ask(
+            `## Implementation Plan\n\n${plan}\n\nProceed with implementation?`
+        )
+        if (!approved) {
+            return { content: "Plan rejected. Still in plan mode — refine the plan and try again." }
+        }
+        // Signal to the agent loop to switch approval mode to "default"
+        // The agent loop reads this sentinel and calls permissionEngine.setApprovalMode("default")
+        return {
+            content: "Plan approved. Switching to default mode — you can now edit files.",
+            _exitPlanMode: true,
+        }
+    },
+}
+```
+
+Note: The agent loop in `agent.ts` needs to detect `_exitPlanMode: true` in the tool result and call `this.permissionEngine.setApprovalMode("default")`. Alternatively, expose the permissionEngine to the ToolContext.
+
+- [ ] **Step 3: Create /plan slash command**
+
+```typescript
+// src/commands/builtin/planCommand.ts
+import { CommandKind, type SlashCommand } from "../types.js"
+
+export const planCommand: SlashCommand = {
+    name: "plan",
+    description: "Enter plan mode — agent analyzes and plans without making changes",
+    kind: CommandKind.BUILT_IN,
+
+    action: (context) => {
+        if (context.client) {
+            context.client.setApprovalMode("plan").catch(() => {})
+        }
+        return {
+            type: "message",
+            content: "Plan mode activated. The agent will analyze and plan but cannot edit files.\nUse exit_plan_mode tool to present the plan and switch back to default mode.",
+        }
+    },
+}
+```
+
+- [ ] **Step 4: Register exitPlanModeTool and planCommand**
+
+In `src/server/tools/index.ts`:
+```typescript
+import { exitPlanModeTool } from "./exitPlanMode.js"
+// in constructor:
+this.register(exitPlanModeTool)
+```
+
+In `src/commands/index.ts` (or wherever commands are loaded):
+```typescript
+import { planCommand } from "./builtin/planCommand.js"
+// add to command list
+```
+
+- [ ] **Step 5: Handle _exitPlanMode sentinel in agent.ts**
+
+Find where tool results are processed in `agent.ts` and add:
+```typescript
+if (toolResult._exitPlanMode && this.permissionEngine) {
+    this.permissionEngine.setApprovalMode("default")
+}
+```
+
+- [ ] **Step 6: Build and verify**
+
+```bash
+npx tsc -p tsconfig.json --noEmit 2>&1 | grep -v chokidar
+```
+
+- [ ] **Step 7: Run tests**
+
+```bash
+npx vitest run src/server/
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/server/tools/exitPlanMode.ts src/server/tools/index.ts \
+        src/commands/builtin/planCommand.ts \
+        src/server/security/permissionEngine.ts \
+        src/protocol/types.ts src/client/index.ts src/index.ts src/server/index.ts \
+        src/commands/builtin/approvalModeCommand.ts
+git commit -m "feat: add plan_mode with exit_plan_mode tool and /plan command"
+```
+
+---
+
+## Task 6: Final verification
+
+- [ ] **Step 1: Full build**
+
+```bash
+npx tsc -p tsconfig.json --noEmit 2>&1 | grep -v chokidar
+```
+
+- [ ] **Step 2: Run all tests**
+
+```bash
+npx vitest run src/server/
+```
+
+Expected: All existing tests pass. The new tools are pure additions — no regressions expected.
+
+- [ ] **Step 3: Smoke test checklist**
+
+- `webfetch`: Ask agent to fetch a public URL (e.g. https://example.com). Verify markdown output.
+- `todowrite`: Ask agent to create a 3-step todo list. Verify `.lop/todos/` file created.
+- `save_memory`: Ask agent to remember a preference. Verify `MEMORY.md` updated. Restart session and verify memory is injected.
+- `batch`: Ask agent to read 3 files simultaneously. Verify batch tool called and all results returned.
+- `plan_mode`: Run `/plan`, ask agent to analyze a task. Verify agent cannot edit files. Call `exit_plan_mode`, verify mode switches.
+
+---
+
+## Implementation Notes
+
+**ToolContext extension for plan_mode:**
+The `exit_plan_mode` tool needs a way to signal mode change back to the agent loop. Two options:
+1. Return a sentinel field (e.g. `_exitPlanMode: true`) and detect it in the agent loop — simpler.
+2. Pass `permissionEngine` in `ToolContext` — cleaner but exposes internal state.
+
+Recommend option 1 for now (minimal blast radius).
+
+**Memory injection timing:**
+`loadMemories()` is async. In `getContextInfo()` (which calculates token counts), it should also include memories. Currently `getContextInfo()` is synchronous — may need to be made async, or pre-load memories at agent construction time.
+
+**batch + PermissionEngine:**
+Sub-calls inside batch bypass the top-level permission hook (the `ask` flow). For now this is acceptable — individual tools still declare their `permission` level, and we can wire it up properly in a follow-up.
