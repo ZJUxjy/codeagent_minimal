@@ -3,6 +3,7 @@ import type { CoreMessage, ToolContent, TextPart, ToolCallPart } from "ai"
 import { LLMClient } from "../llm.js"
 import { ToolRegistry, type ToolRegistryOptions } from "./tools/index.js"
 import { InMemoryStore, type MessageStore } from "./store.js"
+import { loadMemories } from "./tools/memory.js"
 import { noopHooks, type AgentHooks, type ToolCall } from "./hooks/types.js"
 import type { ToolContext } from "./tools/types.js"
 import type { LopConfig, Provider, Question } from "../protocol/types.js"
@@ -42,6 +43,8 @@ export type AgentEvent =
 /** Config needed to spawn a child Agent (no store/tools). */
 export type AgentConfigSnapshot = Omit<AgentConfig, "store" | "tools">
 
+export type ApprovalMode = "default" | "cautious" | "auto" | "plan"
+
 export class Agent {
     private llm: LLMClient
     private tools: ToolRegistry
@@ -53,6 +56,7 @@ export class Agent {
     private questionBridge?: QuestionBridge
     private activeSignal?: AbortSignal
     private fileIndex: FileIndexManager
+    private approvalMode: ApprovalMode = "default"
 
     constructor(config: AgentConfig) {
         const { store, tools, mcpConfig, maxTurns, hooks, questionBridge, ...snapshot } = config
@@ -115,8 +119,26 @@ export class Agent {
         return `You have an \`agent\` tool to delegate sub-tasks. Available subagent profiles:\n${lines.join("\n")}`
     }
 
+    /** Build system prompt from memories + subagent reminder. */
+    private async buildSystemPrompt(): Promise<string | undefined> {
+        const [memories, reminder] = await Promise.all([
+            loadMemories(this.cwd),
+            this.buildSubagentReminder(),
+        ])
+        const parts = [memories, reminder].filter((p): p is string => Boolean(p && p.trim()))
+        return parts.length > 0 ? parts.join("\n\n") : undefined
+    }
+
     getMcpManager() {
         return this.tools.getMcpManager()
+    }
+
+    setApprovalMode(mode: ApprovalMode): void {
+        this.approvalMode = mode
+    }
+
+    getApprovalMode(): string {
+        return this.approvalMode
     }
 
     async *run(userMessage: string, signal?: AbortSignal): AsyncGenerator<AgentEvent> {
@@ -133,7 +155,7 @@ export class Agent {
         this.activeSignal = signal
         const toolDefs = this.tools.getToolDefinitions()
         const store = this.store
-        const systemPrompt = await this.buildSubagentReminder()
+        const systemPrompt = await this.buildSystemPrompt()
 
         function isAborted(): boolean {
             return Boolean(signal?.aborted)
@@ -259,11 +281,22 @@ export class Agent {
         }
 
         const policyDecision = evaluateToolPolicy(call.name, call.args)
-        if (policyDecision === "deny") {
-            return { content: `Error: Tool execution denied by security policy`, isError: true }
-        }
-        if (policyDecision === "ask") {
-            return { content: `Error: Tool '${call.name}' requires user confirmation (security policy)`, isError: true }
+
+        // Plan mode: deny write/edit outright, respect policy for bash
+        if (this.approvalMode === "plan") {
+            if (call.name === "write" || call.name === "edit") {
+                return { content: `Error: '${call.name}' is not allowed in plan mode. Use /plan to re-enter or start a new session to leave plan mode.`, isError: true }
+            }
+            if (policyDecision === "deny") {
+                return { content: `Error: Command denied by security policy (plan mode)`, isError: true }
+            }
+        } else {
+            if (policyDecision === "deny") {
+                return { content: `Error: Tool execution denied by security policy`, isError: true }
+            }
+            if (policyDecision === "ask") {
+                return { content: `Error: Tool '${call.name}' requires user confirmation (security policy)`, isError: true }
+            }
         }
 
         if (this.hooks.beforeToolExecute) {

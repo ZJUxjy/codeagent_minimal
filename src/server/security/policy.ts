@@ -66,5 +66,8 @@ export function evaluateToolPolicy(
     }
   }
 
+  // webfetch: ask by default (SSRF validation is done inside the tool itself)
+  if (toolName === "webfetch") return "ask"
+
   return "allow"
 }

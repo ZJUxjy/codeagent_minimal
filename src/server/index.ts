@@ -1,6 +1,6 @@
 // src/server/index.ts
 import * as readline from "readline"
-import { Agent, type AgentConfig, type AgentEvent } from "./agent.js"
+import { Agent, type AgentConfig, type AgentEvent, type ApprovalMode } from "./agent.js"
 import type { JsonRpcRequest, JsonRpcNotification } from "../protocol/types.js"
 import { debugLog } from "../config.js"
 import { FileStore } from "./stores/FileStore.js"
@@ -200,6 +200,19 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
                 questionBridge.cancelAll()
             }
             sendResponse(requestId, {})
+            break
+        }
+
+        case "set_approval_mode": {
+            const { mode } = params as { mode: string }
+            const validModes: readonly ApprovalMode[] = ["default", "cautious", "auto", "plan"]
+            if (!validModes.includes(mode as ApprovalMode)) {
+                sendError(requestId, -32602, `Invalid mode '${mode}'. Valid: ${validModes.join(", ")}`)
+                return
+            }
+            agent?.setApprovalMode(mode as ApprovalMode)
+            debugLog("permission", `Approval mode set to: ${mode}`)
+            sendResponse(requestId, { mode })
             break
         }
 

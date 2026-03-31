@@ -189,6 +189,11 @@ export class Client {
     await this.sendRequest("clear")
   }
 
+  /** Set approval mode (default, cautious, auto, plan) */
+  async setApprovalMode(mode: string): Promise<void> {
+    await this.sendRequest("set_approval_mode", { mode })
+  }
+
   /** List MCP server status */
   async mcpList(): Promise<{ servers: Array<{ name: string; status: string; error?: string }> }> {
     return this.sendRequest("mcp_list")

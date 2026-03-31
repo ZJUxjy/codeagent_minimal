@@ -7,7 +7,11 @@ import { globTool } from "./glob.js"
 import { grepTool } from "./grep.js"
 import { listDirectoryTool } from "./listDirectory.js"
 import { askQuestionTool } from "./askQuestion.js"
+import { webfetchTool } from "./webfetch.js"
+import { todowriteTool } from "./todowrite.js"
+import { saveMemoryTool } from "./memory.js"
 import { createDiscoveredMcpTool } from "./mcpTool.js"
+import { createBatchTool } from "./batch.js"
 import { McpClientManager } from "../mcp/clientManager.js"
 import type { McpServerConfig } from "../../protocol/types.js"
 
@@ -31,11 +35,17 @@ export class ToolRegistry {
             this.register(grepTool)
             this.register(listDirectoryTool)
             this.register(askQuestionTool)
+            this.register(webfetchTool)
+            this.register(todowriteTool)
+            this.register(saveMemoryTool)
         }
 
         if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
             this.mcpManager = new McpClientManager(options.mcpServers)
         }
+
+        // Batch tool needs access to the registry's tool map — register last
+        this.register(createBatchTool(() => this.tools))
     }
     register(tool: Tool): void {
         this.tools.set(tool.name, tool)
