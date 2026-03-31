@@ -1,6 +1,6 @@
 import { evaluateToolPolicy, type PermissionLevel } from "./policy.js"
 
-export type ApprovalMode = "default" | "cautious" | "yolo"
+export type ApprovalMode = "default" | "cautious" | "auto"
 
 interface SessionRule {
   toolName: string
@@ -19,7 +19,7 @@ interface RuleSet {
  * Priority (highest first):
  *   1. Session deny rules
  *   2. Session allow rules (with optional specifier matching)
- *   3. Approval mode override (yolo / cautious)
+ *   3. Approval mode override (auto / cautious)
  *   4. Built-in policy heuristics (evaluateToolPolicy)
  */
 export class PermissionEngine {
@@ -34,7 +34,7 @@ export class PermissionEngine {
     if (this.matchesRule(this.sessionRules.deny, toolName, args))  return "deny"
     if (this.matchesRule(this.sessionRules.allow, toolName, args)) return "allow"
 
-    if (this.approvalMode === "yolo")     return "allow"
+    if (this.approvalMode === "auto")     return "allow"
     if (this.approvalMode === "cautious") return this.cautiousDefault(toolName)
 
     return evaluateToolPolicy(toolName, args, this.cwd)

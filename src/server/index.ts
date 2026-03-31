@@ -30,7 +30,7 @@ let skillWatcher: SkillWatcher | undefined
 
 function getApprovalMode(): ApprovalMode {
     const raw = process.env.LOP_APPROVAL_MODE
-    if (raw === "yolo" || raw === "cautious") return raw
+    if (raw === "auto" || raw === "cautious") return raw
     return "default"
 }
 
@@ -308,7 +308,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<void> {
         }
 
         case "set_approval_mode": {
-            const { mode } = params as { mode: "default" | "cautious" | "yolo" }
+            const { mode } = params as { mode: "default" | "cautious" | "auto" }
             if (permissionEngine) {
                 permissionEngine.setApprovalMode(mode)
                 debugLog("permission", `Approval mode set to: ${mode}`)

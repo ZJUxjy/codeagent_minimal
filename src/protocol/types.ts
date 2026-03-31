@@ -199,7 +199,7 @@ export interface LopConfig {
         paths?: string[]
     }
     // 权限审批模式
-    approvalMode?: "default" | "cautious" | "yolo"
+    approvalMode?: "default" | "cautious" | "auto"
     // 上下文摘要配置（实验功能）
     summary?: SummaryConfig
 }

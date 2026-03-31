@@ -255,7 +255,7 @@ export class Client {
   }
 
   /** Change approval mode at runtime */
-  async setApprovalMode(mode: "default" | "cautious" | "yolo"): Promise<void> {
+  async setApprovalMode(mode: "default" | "cautious" | "auto"): Promise<void> {
     await this.sendRequest("set_approval_mode", { mode })
   }
 
