@@ -96,6 +96,9 @@ export class Agent {
     /** Accumulated token usage across all turns in this session. */
     private totalUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
 
+    /** promptTokens from the most recent API response — used for compression threshold. */
+    private lastPromptTokens = 0
+
     /** Cached system prompt parts (loaded once at start of each run). */
     private cachedMemories?: string
     private cachedSubagentReminder?: string
@@ -424,7 +427,7 @@ export class Agent {
                     return
                 }
 
-                if (!!!this.turnTracker && shouldCompress(store.getAll(), compressionOpts)) {
+                if (!!!this.turnTracker && shouldCompress(store.getAll(), { ...compressionOpts, lastPromptTokens: this.lastPromptTokens || undefined })) {
                     const result = await compressContext(store, this.llm, signal)
                     if (result.status === "compressed") {
                         yield { type: "context_compressed", tokensBefore: result.tokensBefore!, tokensAfter: result.tokensAfter! }
@@ -474,6 +477,7 @@ export class Agent {
                     } else if (event.type === "done") {
                         finishReason = event.finishReason
                         if (event.usage) {
+                            this.lastPromptTokens = event.usage.promptTokens
                             this.totalUsage.promptTokens += event.usage.promptTokens
                             this.totalUsage.completionTokens += event.usage.completionTokens
                             this.totalUsage.totalTokens += event.usage.totalTokens

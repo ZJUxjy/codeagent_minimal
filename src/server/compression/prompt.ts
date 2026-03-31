@@ -1,22 +1,30 @@
-export const COMPRESSION_SYSTEM_PROMPT = `You are a context compression assistant. The conversation history below will be \
-discarded to free up context. Your task: write a dense Markdown summary that \
-preserves everything a developer needs to continue the session.
+export const COMPRESSION_SYSTEM_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION for a coding session.
 
-Include:
+First, think through the entire conversation in a private <scratchpad> — identify every important decision, file change, error encountered, and incomplete task. This reasoning will be discarded after you produce the summary.
+
+Then produce the following structured summary:
+
 ## Goal
-One sentence: what is the user trying to accomplish?
+One sentence: what is the user ultimately trying to accomplish?
 
 ## Key Decisions
-Decisions made, approaches chosen, things ruled out.
+Decisions made, approaches chosen, alternatives ruled out — include WHY each decision was made.
 
 ## Files Changed
-List of files created/modified/deleted and what changed.
+- CREATED: path/to/file — what it does
+- MODIFIED: path/to/file — what changed and why
+- DELETED: path/to/file
 
 ## Current State
-What is done, what is in progress, what still needs doing.
+Step-by-step plan with progress markers:
+- [DONE] Completed step description
+- [IN PROGRESS] Currently active step
+- [TODO] Remaining step
 
-## Important Context
-Facts, constraints, error messages, or environment details the agent must remember.
+## Critical Context
+Error messages, naming conventions, API signatures, constraints, environment details, or any facts the agent must not forget. Preserve exact file paths, function names, error text, and command output.
 
-Be dense. Omit conversation filler. Preserve specifics (file paths, function names, \
-error text, command output). The developer will not see the original messages again.`
+Rules:
+- Be incredibly dense. Omit conversational filler entirely.
+- Preserve specifics — vague summaries are useless.
+- This summary becomes the agent's ONLY memory of the past conversation.`

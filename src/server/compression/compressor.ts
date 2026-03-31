@@ -23,6 +23,8 @@ export interface CompressionOptions {
     disabled?: boolean
     failedLastAttempt?: boolean
     tokenLimit?: number
+    /** Actual promptTokens from the last API response — more accurate than char estimate */
+    lastPromptTokens?: number
 }
 
 function hasToolCalls(msg: CoreMessage): boolean {
@@ -35,9 +37,10 @@ function hasToolCalls(msg: CoreMessage): boolean {
 export function shouldCompress(messages: CoreMessage[], opts: CompressionOptions): boolean {
     if (opts.disabled) return false
     if (opts.failedLastAttempt) return false
-    const estimated = estimateTotalTokens(messages)
+    // Prefer real token count from last API response; fall back to char-based estimate
+    const used = opts.lastPromptTokens ?? estimateTotalTokens(messages)
     const limit = opts.tokenLimit ?? DEFAULT_MAX_TOKENS
-    return estimated / limit >= COMPRESSION_THRESHOLD
+    return used / limit >= COMPRESSION_THRESHOLD
 }
 
 /**
@@ -99,10 +102,16 @@ function findSplitPoint(messages: CoreMessage[]): number {
     return 0
 }
 
+// If the portion to summarize itself exceeds this fraction of the context window,
+// iteratively drop the oldest messages until it fits — avoids the summarization
+// request itself overflowing the model's context.
+const COMPRESS_PASS_BUDGET_RATIO = 0.60
+
 export async function compressContext(
     store: MessageStore,
     llm: LLMClient,
     signal?: AbortSignal,
+    opts?: Pick<CompressionOptions, "tokenLimit">,
 ): Promise<CompressionResult> {
     const messages = store.getAll()
     const splitIdx = findSplitPoint(messages)
@@ -110,6 +119,12 @@ export async function compressContext(
 
     const toCompress = messages.slice(0, splitIdx)
     const tail       = messages.slice(splitIdx)
+
+    // Overflow protection: trim oldest messages if the compress pass itself is too large
+    const passBudget = (opts?.tokenLimit ?? DEFAULT_MAX_TOKENS) * COMPRESS_PASS_BUDGET_RATIO
+    while (toCompress.length > 1 && estimateTotalTokens(toCompress) > passBudget) {
+        toCompress.shift()
+    }
 
     const summary = await llm.complete(COMPRESSION_SYSTEM_PROMPT, toCompress, signal)
     if (!summary?.trim()) return { status: "failed_empty" }
