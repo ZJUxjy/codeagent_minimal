@@ -240,7 +240,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     // Agent sends cumulative session totals — replace, not add
                     setTokenUsage(event.usage)
                 }
-                getGlobalLogger().info('done',`${streamingRef.current.slice(0,20)}`)
+                getGlobalLogger().info('done',`${streamingRef.current}`)
                 if (streamingRef.current) {
                     setMessages(prev => [...prev, {
                         id: `assistant-${Date.now()}`,

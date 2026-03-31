@@ -119,7 +119,7 @@ export const AskQuestionDialog: React.FC<AskQuestionDialogProps> = ({
                                 bold={highlight}
                             >
                                 {isSelected ? '> ' : '  '}
-                                {isMulti ? (isChecked ? '[x] ' : '[ ] ') : ''}
+                                {isMulti ? (isChecked ? '[✔] ' : '[ ] ') : ''}
                                 {idx + 1}. {opt.label}
                             </Text>
                         </Box>
