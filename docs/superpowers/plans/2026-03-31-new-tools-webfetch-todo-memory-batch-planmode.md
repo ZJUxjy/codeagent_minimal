@@ -5,8 +5,8 @@
 **Goal:** Add 5 new tools/features to lop_minimal, informed by opencode and qwen-code implementations. Each tool follows the existing `Tool` interface pattern in `src/server/tools/`.
 
 **Reference codebases:**
-- opencode: `/home/ubuntu/code/opencode/packages/opencode/src/tool/`
-- qwen-code: `/home/ubuntu/code/qwen-code/packages/core/src/tools/`
+- opencode: `/home/xjingyao/code/agent/opencode/packages/opencode/src/tool/`
+- qwen-code: `/home/xjingyao/code/agent/qwen-code/packages/core/src/tools/`
 
 **Tech Stack:** TypeScript, Zod, existing ToolRegistry + PermissionEngine
 
@@ -18,14 +18,14 @@
 - **Name:** `webfetch` (matches opencode; more descriptive than qwen's `web_fetch`)
 - **Parameters:** `url: string`, `format: "text" | "markdown" | "html"` (default markdown), optional `timeout: number`
 - **Implementation:** Native `fetch()` + lightweight HTML cleanup helpers. No LLM-in-the-loop. Cap response at 2MB.
-- **Security baseline:** Must reject localhost / loopback / private IP / link-local / IPv6 local ranges, and re-check every redirect target before following.
+- **Security baseline:** Must reject localhost / loopback / private IP / link-local / IPv6 local ranges, and re-check every redirect target before following. Note: this is a best-effort regex check (same approach as opencode/qwen-code). It does not defend against DNS rebinding, IPv6-mapped IPv4, or hex-encoded IPs. The real security boundary is the absence of internal credentials — not URL filtering.
 - **Permission model:** Do **not** add a `permission` field to the tool. Instead route `webfetch` through `src/server/security/policy.ts` so the existing PermissionEngine can return `ask`.
 - **Why not qwen's approach:** qwen passes fetched content through Gemini again — adds cost and latency. opencode's plain conversion is simpler and composable.
 
 ### 2. todowrite
 - **Name:** `todowrite` (matches opencode)
 - **Parameters:** `todos: Array<{ id: string, content: string, status: "pending"|"in_progress"|"completed", priority?: "high"|"medium"|"low" }>`
-- **Storage (v1):** JSON file at `.lop/todos.json` under the current workspace root (`ctx.cwd`). No per-session file and no TUI sync in v1.
+- **Storage (v1):** JSON file at `.lop/todos.json` under the current workspace root (`ctx.cwd`). No per-session file and no TUI sync in v1. **Known limitation:** per-workspace, last-writer-wins — multiple concurrent sessions sharing the same workspace will overwrite each other's todos. Both opencode and qwen-code use per-session storage (SQLite key / `<sessionId>.json`), but lop_minimal's `ToolContext` does not carry a `sessionId` yet. Session isolation is deferred to v2.
 - **Design:** Full replace on each call (opencode approach) — simpler than diff-based. Enforce max 1 `in_progress` at a time.
 - **User visibility:** In v1, todo state is visible through normal tool output only. Session-scoped persistence and dedicated TUI rendering are deferred to a later feature.
 
@@ -46,7 +46,7 @@
 
 ### 5. plan_mode
 - **Shape:** `ApprovalMode.PLAN` state + `/plan` slash command. No dedicated `exit_plan_mode` tool in v1.
-- **Design:** Add `"plan"` to `ApprovalMode` type. In plan mode, PermissionEngine returns `"deny"` for mutating tools (`write`, `edit`, `bash`) and `"allow"` for read-only tools.
+- **Design:** Add `"plan"` to `ApprovalMode` type. In plan mode, `write` and `edit` return `"deny"`. For `bash`, delegate to `evaluateToolPolicy()` so catastrophic commands are still denied but read-only commands like `ls`, `git log`, `git diff` are allowed. All other tools return `"allow"`. This matches qwen-code's approach (AST-based read-only detection) but uses lop_minimal's existing `BASH_RULES` instead of tree-sitter.
 - **Entry/exit:** `/plan` enters plan mode. Users leave plan mode with the existing `/approval-mode default` command.
 - **Why not an exit tool:** The current tool contract only returns a string and `ToolContext` does not expose a mode-switch API. A slash-command-only approach fits the current architecture with much less blast radius.
 
@@ -103,9 +103,6 @@ export const webfetchTool: Tool = {
             return "Error: URL must start with http:// or https://"
         }
 
-        const ssrfError = checkSSRF(url)
-        if (ssrfError) return ssrfError
-
         const timeoutMs = Math.min((timeout ?? 10), 30) * 1000
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -113,20 +110,27 @@ export const webfetchTool: Tool = {
         try {
             const res = await fetch(url, {
                 signal: controller.signal,
-                redirect: "manual",   // re-check each redirect target
                 headers: { "User-Agent": "lop-minimal/1.0" },
             })
 
-            // Re-validate redirect targets before following
-            if (res.status >= 300 && res.status < 400) {
-                const location = res.headers.get("location") ?? ""
-                const redirectError = checkSSRF(location)
-                if (redirectError) return `Error: redirect blocked — ${redirectError}`
-                // Follow the redirect manually via a recursive call (one level)
-                return await fetchAndConvert(location, format, timeoutMs, controller)
+            if (!res.ok) {
+                return `Error: HTTP ${res.status} ${res.statusText}`
             }
 
-            return await fetchAndConvert(url, format, timeoutMs, controller)
+            // Check size via Content-Length before reading body
+            const contentLength = Number(res.headers.get("content-length") ?? 0)
+            if (contentLength > MAX_BYTES) {
+                return `Error: response too large (${contentLength} bytes, max 2MB)`
+            }
+
+            const rawText = await res.text()
+            if (Buffer.byteLength(rawText) > MAX_BYTES) {
+                return `Error: response body too large (max 2MB)`
+            }
+
+            if (format === "html") return rawText
+            if (format === "text") return htmlToText(rawText)
+            return htmlToMarkdown(rawText)
         } finally {
             clearTimeout(timer)
         }
@@ -164,51 +168,6 @@ function htmlToMarkdown(html: string): string {
 
 function stripTags(s: string): string {
     return s.replace(/<[^>]+>/g, "").trim()
-}
-
-/** Returns an error string if the URL targets a private/loopback address, undefined otherwise */
-function checkSSRF(rawUrl: string): string | undefined {
-    let parsed: URL
-    try { parsed = new URL(rawUrl) } catch { return "Error: invalid URL" }
-
-    const host = parsed.hostname.toLowerCase()
-    // Block loopback, link-local, private ranges, and metadata endpoints
-    if (
-        host === "localhost" ||
-        host.endsWith(".local") ||
-        /^127\./.test(host) ||
-        /^10\./.test(host) ||
-        /^192\.168\./.test(host) ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-        /^169\.254\./.test(host) ||    // link-local
-        /^::1$/.test(host) ||           // IPv6 loopback
-        /^fc00:/i.test(host) ||         // IPv6 ULA
-        /^fe80:/i.test(host) ||         // IPv6 link-local
-        host === "0.0.0.0" ||
-        host === "metadata.google.internal" ||
-        host === "169.254.169.254"       // cloud metadata endpoint
-    ) {
-        return `Error: requests to private/loopback addresses are not allowed (${host})`
-    }
-    return undefined
-}
-
-/** Perform the actual fetch + convert after redirect/SSRF checks pass */
-async function fetchAndConvert(
-    url: string, format: string, timeoutMs: number, controller: AbortController
-): Promise<string> {
-    const res = await fetch(url, {
-        signal: controller.signal,
-        headers: { "User-Agent": "lop-minimal/1.0" },
-    })
-    if (!res.ok) return `Error: HTTP ${res.status} ${res.statusText}`
-    const contentLength = Number(res.headers.get("content-length") ?? 0)
-    if (contentLength > MAX_BYTES) return `Error: response too large (${contentLength} bytes, max 2MB)`
-    const rawText = await res.text()
-    if (Buffer.byteLength(rawText) > MAX_BYTES) return "Error: response body too large (max 2MB)"
-    if (format === "html") return rawText
-    if (format === "text") return htmlToText(rawText)
-    return htmlToMarkdown(rawText)
 }
 ```
 
@@ -252,6 +211,7 @@ import { z } from "zod"
 import { readFile, writeFile, mkdir } from "fs/promises"
 import { existsSync } from "fs"
 import * as path from "path"
+import * as os from "os"
 import type { Tool, ToolContext } from "./types.js"
 
 const TodoItem = z.object({
@@ -276,13 +236,13 @@ export const todowriteTool: Tool = {
         // Validate: at most one in_progress
         const inProgress = todos.filter(t => t.status === "in_progress")
         if (inProgress.length > 1) {
-            return "Error: at most one todo item can be in_progress at a time"
+            return { content: "Error: at most one todo item can be in_progress at a time" }
         }
 
         // Validate: unique IDs
         const ids = todos.map(t => t.id)
         if (new Set(ids).size !== ids.length) {
-            return "Error: todo item IDs must be unique"
+            return { content: "Error: todo item IDs must be unique" }
         }
 
         // Persist to .lop/todos.json under current workspace
@@ -381,9 +341,10 @@ export const saveMemoryTool: Tool = {
     }),
 
     async execute({ fact, scope }: { fact: string; scope: "project" | "global" }, ctx: ToolContext) {
+        const cwd = (ctx as any).cwd ?? process.cwd()
         const filePath = scope === "global"
             ? GLOBAL_MEMORY_PATH
-            : getProjectMemoryPath(ctx.cwd)
+            : getProjectMemoryPath(cwd)
 
         await appendMemory(filePath, fact)
         return `Memory saved (${scope}): ${fact}`
@@ -430,10 +391,11 @@ In `src/server/agent.ts`, import `loadMemories` and add it only to the async sys
 ```typescript
 import { loadMemories } from "./tools/memory.js"
 
-// In runLoop(), add to systemParts:
+// In runLoop(), add to systemParts AFTER BASE_SYSTEM_PROMPT:
 const memoriesPrompt = await loadMemories(this.cwd)
 const systemParts = [
-    memoriesPrompt,           // <-- add here
+    BASE_SYSTEM_PROMPT,
+    memoriesPrompt,           // <-- after base prompt, before project instructions
     this.projectInstructions,
     await this.buildSubagentReminder(),
     this.buildSkillsPrompt(this.skills),
@@ -475,10 +437,10 @@ const DISALLOWED = new Set(["batch"])
 export function createBatchTool(getTools: () => Map<string, Tool>): Tool {
     return {
         name: "batch",
-        description: `Execute multiple read-only tool calls in parallel for efficiency.
-- Use when operations are independent (reading multiple files, searching the codebase)
+        description: `Execute multiple tool calls in parallel for efficiency.
+- Use when operations are independent (reading multiple files, writing unrelated files)
 - Do NOT use when operations depend on each other's results
-- Cannot batch the batch tool itself or mutating tools
+- Cannot batch the batch tool itself
 - Max ${MAX_BATCH} calls per batch`,
         parameters: z.object({
             tool_calls: z.array(z.object({
@@ -520,12 +482,10 @@ export function createBatchTool(getTools: () => Map<string, Tool>): Tool {
             const succeeded = results.length - failed
             const summary = `Batch: ${results.length} calls, ${succeeded} succeeded, ${failed} failed`
             const details = results.map(r =>
-                "error" in r
-                    ? `[${r.tool}] ERROR: ${r.error}`
-                    : `[${r.tool}]\n${r.result}`
-            ).join("\n\n")
+                "error" in r ? `[${r.tool}] ERROR: ${r.error}` : `[${r.tool}] OK`
+            ).join("\n")
 
-            return `${summary}\n\n${details}`
+            return { content: `${summary}\n\n${details}` }
         },
     }
 }
@@ -562,7 +522,7 @@ git commit -m "feat: add batch tool for parallel tool execution"
 
 **Files:** Create `src/commands/builtin/planCommand.ts`; modify PermissionEngine, types, approval mode references, and built-in command registration.
 
-- [ ] **Step 1: Add "plan" to ApprovalMode everywhere**
+### Step 1: Add "plan" to ApprovalMode everywhere
 
 In `src/server/security/permissionEngine.ts`:
 ```typescript
@@ -572,8 +532,12 @@ export type ApprovalMode = "default" | "cautious" | "auto" | "plan"
 if (this.approvalMode === "plan") return this.planModeDefault(toolName)
 
 private planModeDefault(toolName: string): PermissionLevel {
-    const mutatingTools = new Set(["bash", "write", "edit"])
-    return mutatingTools.has(toolName) ? "deny" : "allow"
+    // write and edit are always denied in plan mode
+    if (toolName === "write" || toolName === "edit") return "deny"
+    // bash delegates to BASH_RULES: catastrophic commands denied, read-only allowed
+    if (toolName === "bash") return evaluateToolPolicy(toolName, {}, this.cwd)
+    // all other tools (read, glob, grep, etc.) are allowed
+    return "allow"
 }
 ```
 
@@ -611,7 +575,7 @@ export const planCommand: SlashCommand = {
 
 In `src/commands/builtin/index.ts`:
 ```typescript
-import { planCommand } from "./planCommand.js"
+import { planCommand } from "./builtin/planCommand.js"
 // export it and add to allBuiltinCommands
 ```
 
