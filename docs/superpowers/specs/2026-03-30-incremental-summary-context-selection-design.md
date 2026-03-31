@@ -14,10 +14,19 @@ Both approaches discard information. Long sessions lose details about early deci
 
 ## Goal
 
-Implement "theoretically lossless" context compression:
-- After each agent turn, asynchronously generate a structured 5-section summary
-- Before each new user message, use an LLM to select which historical turns need their full original messages
-- Always include all summaries as context prefix — nothing is ever fully discarded
+Implement a **loss-minimizing context recall** system:
+- After each completed user-initiated turn, asynchronously generate a structured 5-section summary
+- Before processing each **new user message**, use an LLM once to select which historical turns need their full original messages
+- Keep the canonical full history in `MessageStore`; summaries are auxiliary retrieval metadata, not a replacement for source messages
+- Degrade gracefully when safety limits are hit, while making loss explicit and observable
+
+## Non-Goals
+
+- This feature does **not** guarantee literal losslessness under all conditions
+- This feature does **not** remove the need for final token-budget safety checks
+- This feature does **not** persist summaries across process restarts in v1
+
+**Important boundary:** if `truncateMessages()` or per-tool result capping fires, information can still be lost for that request. The design goal is to reduce loss substantially during normal long-running sessions, not to mathematically eliminate it
 
 ## Data Model
 
@@ -75,6 +84,7 @@ interface TurnSummaryStore {
     add(summary: TurnSummary): void
     get(turnId: string): TurnSummary | undefined
     getAll(): TurnSummary[]
+    getFailedReason(turnId: string): string | undefined
     setPending(turnId: string): void
     isPending(turnId: string): boolean
     setFailed(turnId: string, reason: string): void
@@ -105,23 +115,27 @@ class Summarizer {
 }
 ```
 
-**Trigger conditions** — summarization fires only on clean completions:
-- `finishReason === "stop"` (no more tool calls, natural end)
-- `finishReason === "length"` (max turns reached, agent produced final answer)
+**Execution model:** v1 uses a per-session FIFO queue with concurrency = 1. At most one summarization request is in flight at a time. Additional completed turns are queued. If a turn is already pending or already summarized, duplicate enqueue is ignored.
+
+**Trigger conditions** — summarization is enqueued only when a user-initiated turn reaches a clean terminal state:
+- `finishReason === "stop"` and there are no pending tool calls
+- The run was not interrupted
+- The run did not end in an error state
 
 **Does NOT fire on:**
 - `finishReason === "interrupted"` (user interrupted)
+- `finishReason === "length"` (outer loop max-turn stop is not treated as semantically complete in v1)
 - `finishReason.startsWith("error")` (LLM error)
 
 **Message snapshot:** `turnMessages` passed to `summarize()` is a snapshot captured at call time (`store.getAll().slice(startIdx, endIdx + 1)`). The summarizer does not read from the store directly, avoiding race conditions if a new `run()` starts before async summarization completes.
 
-**Error handling:** Errors are caught, logged, and `summaryStore.setFailed(turnId, reason)` is called. Failed turns are treated identically to pending turns — their full messages are preserved in context.
+**Error handling:** Errors are caught, logged, and `summaryStore.setFailed(turnId, reason)` is called. Failed turns are treated identically to pending turns — their full messages are preserved in context. No automatic retry in v1; failure is observable through logs and store inspection.
 
 **Lifecycle:** `abort()` cancels the in-progress `AbortController` when `signal.aborted` fires. The promise is `.catch()`-ed to prevent unhandled rejections.
 
 ### ContextSelector
 
-Async component called before each LLM stream. Uses the same dedicated `LLMClient` via `LLMClient.complete()` (non-streaming). The selection prompt is structured as: `systemPrompt` = selection instructions, `messages` = a single user message containing summaries + turn descriptions + the new user question. Expected latency: 1-3 seconds with a fast model (e.g., glm-4-flash).
+Async component called **once per new user message**, before the **first** `llm.stream()` of that run. It is **not** called again for internal agent-loop iterations triggered by tool calls. Uses the same dedicated `LLMClient` via `LLMClient.complete()` (non-streaming). The selection prompt is structured as: `systemPrompt` = selection instructions, `messages` = a single user message containing summaries + turn descriptions + the new user question. Expected latency: 1-3 seconds with a fast model (e.g., glm-4-flash).
 
 ```typescript
 class ContextSelector {
@@ -170,7 +184,23 @@ for (const turn of selectedTurns) {
 // 4. Current user question (already in store, included via selected turns for the current turn)
 ```
 
-**Post-assembly processing:** After assembly, `convertToolMessages()` is applied (same as existing path — see Agent Loop Integration section below for the actual call site). `truncateMessages()` is also applied as a final safety net — if the assembled context (summaries + selected turns) still exceeds `DEFAULT_MAX_TOKENS`, oldest selected turns are dropped.
+**Post-assembly processing:** After assembly, `convertToolMessages()` is applied (same as existing path — see Agent Loop Integration section below for the actual call site). `truncateMessages()` remains the final safety net — if the assembled context (summaries + selected turns) still exceeds `DEFAULT_MAX_TOKENS`, oldest selected turns may still be dropped for that request. This is an explicit degraded-mode path, not part of the "normal" design target.
+
+### Working Context vs Canonical History
+
+To avoid re-running selection on every tool-loop iteration, the runtime maintains two separate views:
+
+- **Canonical history (`MessageStore`)**: full session transcript, append-only during the run
+- **Working context (`CoreMessage[]`)**: the selected/summarized message list actually sent to `llm.stream()`
+
+Flow:
+1. On `Agent.run(userMessage)`, append the user message to `MessageStore`
+2. Run `ContextSelector` once and build the initial `workingContext`
+3. Call `llm.stream(convertToolMessages(truncateMessages(workingContext)))`
+4. As assistant/tool messages are produced, append them to both `MessageStore` and `workingContext`
+5. Subsequent internal iterations (after tool results) continue from `workingContext`, not from `store.getAll()`
+
+This keeps the selector cost at one LLM call per user message while preserving the full transcript for later summarization and debugging.
 
 ## Configuration
 
@@ -209,22 +239,62 @@ Before:
   llm.stream(convertToolMessages(truncateMessages(store.getAll())))
 
 After (when summary.enabled):
-  contextSelector.select(userMessage, summaries, turns) → selectedMessages
-  llm.stream(convertToolMessages(truncateMessages(selectedMessages)))
-  → on clean done (stop/length): capture turn snapshot, fire-and-forget summarizer.summarize()
+  Agent.run(userMessage):
+    store.add(userMessage)
+    contextSelector.select(userMessage, summaries, turns) → workingContext
+
+  each loop iteration:
+    llm.stream(convertToolMessages(truncateMessages(workingContext)))
+    append assistant/tool messages to both store and workingContext
+
+  on clean done (stop, no pending tools):
+    capture canonical turn snapshot from store
+    enqueue summarizer.summarize()
 
 Fallback (when summary.enabled === false):
   Original path unchanged
 
-Selection failure modes (all fall through to original truncateMessages path):
+Selection failure modes (all fall through to original `store.getAll()` + `truncateMessages` path for that run):
   - LLM call timeout or network error
   - LLM returns malformed output (not parseable JSON)
-  - Assembled context exceeds token budget even after selection
+  - Selector returns unknown / invalid turn IDs
+
+Degraded execution (selection succeeded, but context is still too large):
+  - Apply deterministic pruning first (drop oldest selected summarized turns)
+  - If still too large, apply `truncateMessages()` as the final safety net
+  - Emit debug logging so loss is observable
 ```
 
 **Interrupt handling:** When `signal.aborted`, call `summarizer.abort()` to cancel in-progress summarization.
 
-**compressContext interaction:** When `compressContext` fires (e.g., if context selection is skipped and context still exceeds 75% threshold), it calls `store.replaceAll()` which invalidates all summary indices. The integration code must call `summaryStore.clear()` after any `compressContext` invocation.
+**compressContext interaction:** When `summary.enabled`, the normal 75% proactive `shouldCompress() → compressContext()` path is disabled. Otherwise the canonical full transcript would be mutated before the selector can use it, defeating the purpose of this feature.
+
+`compressContext` remains available only as:
+- the existing path when `summary.enabled === false`
+- a manual or emergency fallback if the selected working context cannot be made to fit safely
+
+If `compressContext` is invoked while summary mode is active, it calls `store.replaceAll()` and invalidates all tracked message IDs. The integration code must immediately call:
+- `summaryStore.clear()`
+- `turnTracker.reset()`
+
+and then continue from the compressed canonical store as a fresh baseline.
+
+## Testing Strategy
+
+Minimum v1 coverage should include:
+
+1. `TurnTracker` assigns stable monotonically increasing IDs and resets correctly after fallback compression
+2. `ContextSelector` is called once per new user message, not once per tool-loop iteration
+3. Pending turns are always preserved as full messages
+4. Failed summaries are always preserved as full messages and expose a failure reason
+5. Clean completion (`stop`) enqueues summarization; `interrupted`, `error*`, and `length` do not
+6. Working context continues correctly across assistant/tool iterations without re-reading full `store.getAll()`
+7. Selection malformed output falls back to the original path for that run
+8. Deterministic pruning + `truncateMessages()` still produce a valid provider-safe sequence
+9. Emergency/manual `compressContext` clears summary state and resets turn tracking
+10. Very large tool outputs still behave correctly when capped/truncated
+11. Summary mode disabled preserves existing behavior exactly
+12. Summary mode enabled but no summaries available yet still produces valid history
 
 ## What Does NOT Change
 
@@ -232,7 +302,7 @@ Selection failure modes (all fall through to original truncateMessages path):
 - `LLMClient` — unchanged (just a second instance)
 - JSON-RPC protocol — no new methods or notifications for v1
 - TUI — selection is transparent to the user
-- Existing `compressContext` — remains as fallback
+- Existing `compressContext` implementation — unchanged, but no longer part of the normal hot path when summary mode is enabled
 - `truncateMessages` — remains as post-assembly safety net
 
 ## File Structure
@@ -254,7 +324,7 @@ src/server/
 | Aspect | Benefit | Cost |
 |--------|---------|------|
 | Async summarization | No latency added to agent responses | Extra LLM calls (cheap model) |
-| All summaries always included | Zero information loss | Fixed context overhead (~summaries) |
+| All summaries always included | Better long-range recall across long sessions | Fixed context overhead (~summaries) |
 | LLM-based selection | Semantic relevance, not heuristic | One extra LLM call per user turn (1-3s latency) |
 | Skip condition for small contexts | No overhead when unnecessary | Slight complexity in skip logic |
 | Separate provider config | Cost optimization with cheap models | Config complexity |
