@@ -103,6 +103,9 @@ export const webfetchTool: Tool = {
             return "Error: URL must start with http:// or https://"
         }
 
+        const ssrfError = checkSSRF(url)
+        if (ssrfError) return ssrfError
+
         const timeoutMs = Math.min((timeout ?? 10), 30) * 1000
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -110,27 +113,20 @@ export const webfetchTool: Tool = {
         try {
             const res = await fetch(url, {
                 signal: controller.signal,
+                redirect: "manual",   // re-check each redirect target
                 headers: { "User-Agent": "lop-minimal/1.0" },
             })
 
-            if (!res.ok) {
-                return `Error: HTTP ${res.status} ${res.statusText}`
+            // Re-validate redirect targets before following
+            if (res.status >= 300 && res.status < 400) {
+                const location = res.headers.get("location") ?? ""
+                const redirectError = checkSSRF(location)
+                if (redirectError) return `Error: redirect blocked — ${redirectError}`
+                // Follow the redirect manually via a recursive call (one level)
+                return await fetchAndConvert(location, format, timeoutMs, controller)
             }
 
-            // Check size via Content-Length before reading body
-            const contentLength = Number(res.headers.get("content-length") ?? 0)
-            if (contentLength > MAX_BYTES) {
-                return `Error: response too large (${contentLength} bytes, max 2MB)`
-            }
-
-            const rawText = await res.text()
-            if (Buffer.byteLength(rawText) > MAX_BYTES) {
-                return `Error: response body too large (max 2MB)`
-            }
-
-            if (format === "html") return rawText
-            if (format === "text") return htmlToText(rawText)
-            return htmlToMarkdown(rawText)
+            return await fetchAndConvert(url, format, timeoutMs, controller)
         } finally {
             clearTimeout(timer)
         }
@@ -168,6 +164,51 @@ function htmlToMarkdown(html: string): string {
 
 function stripTags(s: string): string {
     return s.replace(/<[^>]+>/g, "").trim()
+}
+
+/** Returns an error string if the URL targets a private/loopback address, undefined otherwise */
+function checkSSRF(rawUrl: string): string | undefined {
+    let parsed: URL
+    try { parsed = new URL(rawUrl) } catch { return "Error: invalid URL" }
+
+    const host = parsed.hostname.toLowerCase()
+    // Block loopback, link-local, private ranges, and metadata endpoints
+    if (
+        host === "localhost" ||
+        host.endsWith(".local") ||
+        /^127\./.test(host) ||
+        /^10\./.test(host) ||
+        /^192\.168\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+        /^169\.254\./.test(host) ||    // link-local
+        /^::1$/.test(host) ||           // IPv6 loopback
+        /^fc00:/i.test(host) ||         // IPv6 ULA
+        /^fe80:/i.test(host) ||         // IPv6 link-local
+        host === "0.0.0.0" ||
+        host === "metadata.google.internal" ||
+        host === "169.254.169.254"       // cloud metadata endpoint
+    ) {
+        return `Error: requests to private/loopback addresses are not allowed (${host})`
+    }
+    return undefined
+}
+
+/** Perform the actual fetch + convert after redirect/SSRF checks pass */
+async function fetchAndConvert(
+    url: string, format: string, timeoutMs: number, controller: AbortController
+): Promise<string> {
+    const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { "User-Agent": "lop-minimal/1.0" },
+    })
+    if (!res.ok) return `Error: HTTP ${res.status} ${res.statusText}`
+    const contentLength = Number(res.headers.get("content-length") ?? 0)
+    if (contentLength > MAX_BYTES) return `Error: response too large (${contentLength} bytes, max 2MB)`
+    const rawText = await res.text()
+    if (Buffer.byteLength(rawText) > MAX_BYTES) return "Error: response body too large (max 2MB)"
+    if (format === "html") return rawText
+    if (format === "text") return htmlToText(rawText)
+    return htmlToMarkdown(rawText)
 }
 ```
 
@@ -211,7 +252,6 @@ import { z } from "zod"
 import { readFile, writeFile, mkdir } from "fs/promises"
 import { existsSync } from "fs"
 import * as path from "path"
-import * as os from "os"
 import type { Tool, ToolContext } from "./types.js"
 
 const TodoItem = z.object({
@@ -236,13 +276,13 @@ export const todowriteTool: Tool = {
         // Validate: at most one in_progress
         const inProgress = todos.filter(t => t.status === "in_progress")
         if (inProgress.length > 1) {
-            return { content: "Error: at most one todo item can be in_progress at a time" }
+            return "Error: at most one todo item can be in_progress at a time"
         }
 
         // Validate: unique IDs
         const ids = todos.map(t => t.id)
         if (new Set(ids).size !== ids.length) {
-            return { content: "Error: todo item IDs must be unique" }
+            return "Error: todo item IDs must be unique"
         }
 
         // Persist to .lop/todos.json under current workspace
@@ -341,10 +381,9 @@ export const saveMemoryTool: Tool = {
     }),
 
     async execute({ fact, scope }: { fact: string; scope: "project" | "global" }, ctx: ToolContext) {
-        const cwd = (ctx as any).cwd ?? process.cwd()
         const filePath = scope === "global"
             ? GLOBAL_MEMORY_PATH
-            : getProjectMemoryPath(cwd)
+            : getProjectMemoryPath(ctx.cwd)
 
         await appendMemory(filePath, fact)
         return `Memory saved (${scope}): ${fact}`
@@ -436,10 +475,10 @@ const DISALLOWED = new Set(["batch"])
 export function createBatchTool(getTools: () => Map<string, Tool>): Tool {
     return {
         name: "batch",
-        description: `Execute multiple tool calls in parallel for efficiency.
-- Use when operations are independent (reading multiple files, writing unrelated files)
+        description: `Execute multiple read-only tool calls in parallel for efficiency.
+- Use when operations are independent (reading multiple files, searching the codebase)
 - Do NOT use when operations depend on each other's results
-- Cannot batch the batch tool itself
+- Cannot batch the batch tool itself or mutating tools
 - Max ${MAX_BATCH} calls per batch`,
         parameters: z.object({
             tool_calls: z.array(z.object({
@@ -481,10 +520,12 @@ export function createBatchTool(getTools: () => Map<string, Tool>): Tool {
             const succeeded = results.length - failed
             const summary = `Batch: ${results.length} calls, ${succeeded} succeeded, ${failed} failed`
             const details = results.map(r =>
-                "error" in r ? `[${r.tool}] ERROR: ${r.error}` : `[${r.tool}] OK`
-            ).join("\n")
+                "error" in r
+                    ? `[${r.tool}] ERROR: ${r.error}`
+                    : `[${r.tool}]\n${r.result}`
+            ).join("\n\n")
 
-            return { content: `${summary}\n\n${details}` }
+            return `${summary}\n\n${details}`
         },
     }
 }
@@ -521,7 +562,7 @@ git commit -m "feat: add batch tool for parallel tool execution"
 
 **Files:** Create `src/commands/builtin/planCommand.ts`; modify PermissionEngine, types, approval mode references, and built-in command registration.
 
-### Step 1: Add "plan" to ApprovalMode everywhere
+- [ ] **Step 1: Add "plan" to ApprovalMode everywhere**
 
 In `src/server/security/permissionEngine.ts`:
 ```typescript
@@ -570,7 +611,7 @@ export const planCommand: SlashCommand = {
 
 In `src/commands/builtin/index.ts`:
 ```typescript
-import { planCommand } from "./builtin/planCommand.js"
+import { planCommand } from "./planCommand.js"
 // export it and add to allBuiltinCommands
 ```
 
