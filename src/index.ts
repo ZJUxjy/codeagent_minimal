@@ -57,7 +57,7 @@ async function main() {
       cliOptions.resume = true;
     } else if (arg === '--approval-mode') {
       const mode = args[++i];
-      if (mode === 'default' || mode === 'cautious' || mode === 'auto') {
+      if (mode === 'default' || mode === 'cautious' || mode === 'auto' || mode === 'plan') {
         cliOptions.approvalMode = mode;
       }
     }

@@ -105,7 +105,8 @@ async function fetchAndConvert(url: string, format: string, signal: AbortSignal,
         if (!res.ok) return `Error: HTTP ${res.status} ${res.statusText}`
         const contentLength = Number(res.headers.get("content-length") ?? 0)
         if (contentLength > MAX_BYTES) return `Error: response too large (${contentLength} bytes, max 2MB)`
-        const rawText = await readBodyWithLimit(res.body!, MAX_BYTES)
+        if (!res.body) return ""
+        const rawText = await readBodyWithLimit(res.body, MAX_BYTES)
         if (rawText === null) return "Error: response body too large (max 2MB)"
         if (format === "html") return rawText
         if (format === "text") return htmlToText(rawText)

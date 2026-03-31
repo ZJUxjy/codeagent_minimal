@@ -13,7 +13,7 @@ export const planCommand: SlashCommand = {
         }
         return {
             type: 'message',
-            content: 'Plan mode activated. The agent will analyze and plan but cannot edit files.\nStart a new session to leave plan mode.',
+            content: 'Plan mode activated. The agent will analyze and plan but cannot edit files.\nUse /approval-mode default to leave plan mode.',
         }
     },
 }
