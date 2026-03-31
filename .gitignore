@@ -16,3 +16,4 @@ debug
 __pycache__
 tmp/
 .vscode/launch.json
+.worktrees/
