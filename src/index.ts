@@ -14,26 +14,54 @@ async function main() {
   // Handle `lop init` subcommand
   if (process.argv[2] === 'init') {
     const targetPath = path.resolve(process.cwd(), 'LOP.md')
-    if (fs.existsSync(targetPath)) {
-      console.log('LOP.md already exists. No changes made.')
+    const smart = process.argv.includes('--smart')
+
+    if (!smart) {
+      // Existing template behaviour
+      if (fs.existsSync(targetPath)) {
+        console.log('LOP.md already exists. No changes made.')
+        process.exit(0)
+      }
+      const template = `# Project Instructions\n\n<!-- Add project-specific instructions for the AI agent here. -->\n<!-- This file is loaded automatically from any directory in the project tree. -->\n\n## Code Style\n<!-- e.g. "Always use TypeScript strict mode." -->\n\n## Architecture\n<!-- e.g. "This is a Next.js App Router project." -->\n\n## Rules\n<!-- e.g. "Never commit secrets. Always write tests." -->\n`
+      fs.writeFileSync(targetPath, template, 'utf8')
+      console.log(`Created LOP.md at ${targetPath}`)
       process.exit(0)
     }
-    const template = `# Project Instructions
 
-<!-- Add project-specific instructions for the AI agent here. -->
-<!-- This file is loaded automatically from any directory in the project tree. -->
+    // --smart: scan project and generate via LLM
+    if (fs.existsSync(targetPath)) {
+      console.log('LOP.md already exists. Remove it first or edit it manually.')
+      process.exit(1)
+    }
 
-## Code Style
-<!-- e.g. "Always use TypeScript strict mode." -->
+    const { runSmartInit } = await import('./commands/init/smartInit.js')
+    const fileConfig = loadConfig()
 
-## Architecture
-<!-- e.g. "This is a Next.js App Router project." -->
+    if (!fileConfig.apiKey && !process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
+      console.error('Error: No API key configured. Run `lop` to set up config first.')
+      process.exit(1)
+    }
 
-## Rules
-<!-- e.g. "Never commit secrets. Always write tests." -->
-`
-    fs.writeFileSync(targetPath, template, 'utf8')
-    console.log(`Created LOP.md at ${targetPath}`)
+    const llmConfig = {
+      provider: fileConfig.provider ?? 'anthropic',
+      model: fileConfig.model ?? 'claude-sonnet-4-6',
+      apiKey: fileConfig.apiKey,
+      baseURL: fileConfig.baseURL,
+    }
+
+    console.log('Scanning project and generating LOP.md...')
+    try {
+      const content = await runSmartInit(process.cwd(), llmConfig as any)
+      if (!content) {
+        console.error('Error: LLM returned empty content.')
+        process.exit(1)
+      }
+      fs.writeFileSync(targetPath, content + '\n', 'utf8')
+      console.log(`Created LOP.md at ${targetPath}`)
+    } catch (err: any) {
+      console.error(`Error: ${err?.message ?? String(err)}`)
+      process.exit(1)
+    }
     process.exit(0)
   }
 
