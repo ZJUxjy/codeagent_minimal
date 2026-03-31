@@ -26,6 +26,7 @@
 | `system-prompt-learning-mode.md` | 学习模式 - 协作式教学，请求人工贡献 |
 | `system-prompt-executing-actions-with-care.md` | 谨慎执行 - 考虑可逆性和影响范围 |
 | `system-prompt-subagent-delegation-examples.md` | 子代理委派示例 |
+| `system-prompt-context-compaction-summary.md` | 上下文压缩摘要 - 用于 `/compact` 命令生成任务延续摘要 |
 
 ### 任务执行原则
 
@@ -89,4 +90,4 @@ Grep > grep/rg
 
 ---
 
-*最后更新: 2026-03-30*
+*最后更新: 2026-03-31*
