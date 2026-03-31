@@ -105,14 +105,17 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
     )
 
     // Ref to access latest streaming content in 'done' callback
+    // Note: This is updated synchronously in handleEvent to avoid React batching issues
     const streamingRef = useRef('')
-    useEffect(() => {
-        streamingRef.current = streaming.content
-    }, [streaming.content])
 
     const handleEvent = useCallback((event: any) => {
         switch (event.type) {
             case 'content':
+                // Sync update ref BEFORE setStreaming to avoid React batching issues
+                // When multiple content events fire rapidly, React may batch them,
+                // causing the ref to lag behind. Synchronous update ensures done
+                // event always sees the complete content.
+                streamingRef.current += event.delta
                 setStreaming(prev => ({ ...prev, content: prev.content + event.delta }))
                 break
             case 'reasoning':
@@ -259,6 +262,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                 }
                 setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
                 setIsLoading(false)
+                streamingRef.current = ''
 
                 break
         }
@@ -368,6 +372,7 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
         setIsLoading(false)
 
         setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
+        streamingRef.current = ''
         setPendingQuestions([])
         setPendingPermissions([])
     }, [client])
