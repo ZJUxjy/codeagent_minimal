@@ -3,6 +3,7 @@ import type { CoreMessage, TextPart, ToolCallPart } from "ai"
 import { LLMClient, type TokenUsage } from "../llm.js"
 import { ToolRegistry, type ToolRegistryOptions } from "./tools/index.js"
 import { InMemoryStore, type MessageStore } from "./store.js"
+import { loadMemories } from "./tools/memory.js"
 import { noopHooks, type AgentHooks, type ToolCall } from "./hooks/types.js"
 import type { ToolContext } from "./tools/types.js"
 import type { LopConfig, Provider, Question, SummaryConfig } from "../protocol/types.js"
@@ -361,10 +362,17 @@ export class Agent {
         this.activeSignal = signal
         const toolDefs = this.tools.getToolDefinitions()
         const store = this.store
+
+        // Build system prompt: base + instructions + memories + skills + subagent reminder
+        const [memories, subagentReminder] = await Promise.all([
+            loadMemories(this.cwd),
+            this.buildSubagentReminder(),
+        ])
         const systemParts = [
             BASE_SYSTEM_PROMPT,
             this.projectInstructions,
-            await this.buildSubagentReminder(),
+            memories,
+            subagentReminder,
             this.buildSkillsPrompt(this.skills),
         ].filter((part): part is string => Boolean(part && part.trim()))
         const systemPrompt = systemParts.length > 0 ? systemParts.join("\n\n") : undefined

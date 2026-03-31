@@ -15,6 +15,7 @@ import { instructionsCommand } from './instructionsCommand.js'
 import { compressCommand } from './compressCommand.js'
 import { btwCommand } from './btwCommand.js'
 import { contextCommand } from './contextCommand.js'
+import { planCommand } from './planCommand.js'
 import type { SlashCommand } from '../types.js'
 
 export {
@@ -35,6 +36,7 @@ export {
     compressCommand,
     btwCommand,
     contextCommand,
+    planCommand,
 }
 
 export const allBuiltinCommands: SlashCommand[] = [
@@ -55,4 +57,5 @@ export const allBuiltinCommands: SlashCommand[] = [
     compressCommand,
     btwCommand,
     contextCommand,
+    planCommand,
 ]

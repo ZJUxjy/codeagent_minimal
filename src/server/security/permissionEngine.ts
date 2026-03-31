@@ -1,6 +1,6 @@
 import { evaluateToolPolicy, type PermissionLevel } from "./policy.js"
 
-export type ApprovalMode = "default" | "cautious" | "auto"
+export type ApprovalMode = "default" | "cautious" | "auto" | "plan"
 
 interface SessionRule {
   toolName: string
@@ -36,6 +36,7 @@ export class PermissionEngine {
 
     if (this.approvalMode === "auto")     return "allow"
     if (this.approvalMode === "cautious") return this.cautiousDefault(toolName)
+    if (this.approvalMode === "plan")     return this.planDefault(toolName, args)
 
     return evaluateToolPolicy(toolName, args, this.cwd)
   }
@@ -61,6 +62,12 @@ export class PermissionEngine {
   private cautiousDefault(toolName: string): PermissionLevel {
     const mutatingTools = new Set(["bash", "write", "edit"])
     return mutatingTools.has(toolName) ? "ask" : "allow"
+  }
+
+  private planDefault(toolName: string, args: Record<string, unknown>): PermissionLevel {
+    // Plan mode: deny write/edit outright, delegate bash to policy heuristics
+    if (toolName === "write" || toolName === "edit") return "deny"
+    return evaluateToolPolicy(toolName, args, this.cwd)
   }
 
   private matchesRule(rules: SessionRule[], toolName: string, args: Record<string, unknown>): boolean {
