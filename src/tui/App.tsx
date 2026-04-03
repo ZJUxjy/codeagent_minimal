@@ -261,8 +261,12 @@ export const App: React.FC<AppProps> = ({ clientOptions, clearScreen }) => {
                     }])
                 }
                 setStreaming({ content: '', thinkingContent: '', isThinkingStreaming: false })
-                setIsLoading(false)
                 streamingRef.current = ''
+                // Defer isLoading to next tick so the activeTurn→Static transition
+                // renders in a separate frame. Without this, React 18 batching
+                // merges the last content delta + done into one render, causing
+                // streaming.content to be cleared before it's ever displayed.
+                setTimeout(() => setIsLoading(false), 0)
 
                 break
         }
