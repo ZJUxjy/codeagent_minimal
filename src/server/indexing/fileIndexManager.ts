@@ -1,10 +1,11 @@
-import { readFile } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import { extname } from 'path'
 import fg from 'fast-glob'
 import { TrigramIndex } from './trigram.js'
 import { decompose } from './queryDecompose.js'
 
 export const IGNORED_DIRS = ['node_modules', '.git', 'dist', '.next', '__pycache__', '.venv']
+const IGNORE_PATTERNS = IGNORED_DIRS.map(d => `${d}/**`)
 const IGNORED_EXTENSIONS = new Set([
     '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg', '.webp',
     '.woff', '.woff2', '.ttf', '.eot',
@@ -15,7 +16,7 @@ const IGNORED_EXTENSIONS = new Set([
     '.lock', '.map',
 ])
 
-const MAX_FILE_SIZE = 512 * 1024 // 512KB — 跳过超大文件
+const MAX_FILE_SIZE = 512 * 1024 // 512KB — skip very large files
 
 export class FileIndexManager {
     private index = new TrigramIndex()
@@ -35,45 +36,42 @@ export class FileIndexManager {
     }
 
     async build(): Promise<void> {
-        const ignorePatterns = IGNORED_DIRS.map(d => `${d}/**`)
         const files = await fg('**/*', {
             cwd: this.cwd,
-            ignore: ignorePatterns,
+            ignore: IGNORE_PATTERNS,
             absolute: true,
             onlyFiles: true,
-            stats: false,
         })
 
-        const readPromises = files
-            .filter(f => !IGNORED_EXTENSIONS.has(extname(f).toLowerCase()))
-            .map(async (filePath) => {
-                try {
-                    const content = await readFile(filePath, 'utf-8')
-                    if (content.length <= MAX_FILE_SIZE) {
+        await Promise.all(
+            files
+                .filter(f => !IGNORED_EXTENSIONS.has(extname(f).toLowerCase()))
+                .map(async (filePath) => {
+                    try {
+                        const { size } = await stat(filePath)
+                        if (size > MAX_FILE_SIZE) return
+                        const content = await readFile(filePath, 'utf-8')
                         this.index.addFile(filePath, content)
+                    } catch {
+                        // Skip unreadable files (binary, permissions, etc.)
                     }
-                } catch {
-                    // 跳过无法读取的文件（二进制等）
-                }
-            })
-
-        await Promise.all(readPromises)
+                })
+        )
         this.ready = true
     }
 
     /**
-     * 给定正则模式，返回可能匹配的候选文件路径列表。
-     * 如果索引未就绪或无法提取 trigram，返回空数组（调用方应退化为全扫描）。
+     * Returns candidate file paths that may match the pattern.
+     * Returns null when the index is not ready or trigrams cannot be extracted
+     * (caller should fall back to full scan).
      */
-    search(pattern: string): string[] {
-        if (!this.ready) return []
+    search(pattern: string): string[] | null {
+        if (!this.ready) return null
         const trigrams = decompose(pattern)
+        if (trigrams.size === 0) return null
         return this.index.query(trigrams)
     }
 
-    /**
-     * 文件变更通知 — write/edit 工具调用后触发。
-     */
     onFileChanged(filePath: string, newContent: string): void {
         if (IGNORED_EXTENSIONS.has(extname(filePath).toLowerCase())) return
         if (newContent.length > MAX_FILE_SIZE) {
@@ -83,9 +81,6 @@ export class FileIndexManager {
         this.index.updateFile(filePath, newContent)
     }
 
-    /**
-     * 文件删除通知。
-     */
     onFileRemoved(filePath: string): void {
         this.index.removeFile(filePath)
     }

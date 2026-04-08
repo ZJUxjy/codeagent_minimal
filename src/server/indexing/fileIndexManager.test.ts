@@ -29,14 +29,14 @@ describe('FileIndexManager', () => {
     it('should find candidates for a known string', async () => {
         const manager = new FileIndexManager(testDir)
         await manager.build()
-        const candidates = manager.search('hello')
+        const candidates = manager.search('hello')!
         expect(candidates.some(f => f.endsWith('hello.ts'))).toBe(true)
     })
 
     it('should not return unrelated files', async () => {
         const manager = new FileIndexManager(testDir)
         await manager.build()
-        const candidates = manager.search('hello')
+        const candidates = manager.search('hello')!
         expect(candidates.some(f => f.endsWith('foo.ts'))).toBe(false)
     })
 
@@ -44,12 +44,12 @@ describe('FileIndexManager', () => {
         const manager = new FileIndexManager(testDir)
         await manager.build()
 
-        // "uniquetoken" 初始不存在
-        expect(manager.search('uniquetoken').length).toBe(0)
+        // "uniquetoken" initially absent (trigrams extractable, but no file matches)
+        expect(manager.search('uniquetoken')!.length).toBe(0)
 
-        // 通知文件变更
+        // Notify of file change
         manager.onFileChanged(join(testDir, 'src', 'hello.ts'), 'export const uniquetoken = 1')
-        expect(manager.search('uniquetoken').some(f => f.endsWith('hello.ts'))).toBe(true)
+        expect(manager.search('uniquetoken')!.some(f => f.endsWith('hello.ts'))).toBe(true)
     })
 
     it('should skip node_modules and .git directories', async () => {
@@ -65,7 +65,6 @@ describe('FileIndexManager', () => {
     })
 
     it('should skip binary-like files', async () => {
-        // 创建一个 .png "文件"（虽然内容是文本，但扩展名被排除）
         writeFileSync(join(testDir, 'image.png'), 'should_not_index_png')
         const manager = new FileIndexManager(testDir)
         await manager.build()
